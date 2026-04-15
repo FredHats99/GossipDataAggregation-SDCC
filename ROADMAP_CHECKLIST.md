@@ -4,24 +4,25 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 0) Project Setup and Governance
 
-- [ ] Confirm selected aggregation operations for MVP:
-  - [ ] `SUM`
-  - [ ] `TOP-K`
+- [x] Confirm selected aggregation operations for MVP:
+  - [x] `SUM` (MVP strategy: exact CRDT G-Counter)
+  - [x] `TOP-K` (MVP strategy: exact deterministic bounded candidate set)
 - [ ] Define non-functional targets:
   - [ ] Cluster size target (e.g., 3/5/10 nodes)
   - [ ] Convergence expectation (eventual, bounded time under normal network)
   - [ ] Fault model (node crash, restart, packet loss, partition)
-- [ ] Decide coding standards:
-  - [ ] Go version
-  - [ ] Lint/test tooling
-  - [ ] Logging/metrics conventions
+- [x] Decide coding standards:
+  - [x] Go version
+  - [x] Lint/test tooling
+  - [x] Logging/metrics conventions (see `LOGGING_CONVENTIONS.md`)
+  - [x] Decision draft documented in `STEP0_CODING_STANDARDS.md`
 
 ## 1) Requirements and Protocol Contract
 
-- [ ] Write protocol specification document:
-  - [ ] Node identity format (`node_id`)
-  - [ ] Message envelope fields (`type`, `seq`, `timestamp`, `checksum`, `from`)
-  - [ ] Message types (`Ping`, `StateDigest`, `StateDelta`, `Ack`, `SnapshotReq`, `SnapshotResp`)
+- [x] Write protocol specification document (see `PROTOCOL_SPEC.md`):
+  - [x] Node identity format (`node_id`)
+  - [x] Message envelope fields (`type`, `seq`, `timestamp`, `checksum`, `from`)
+  - [x] Message types (`Ping`, `StateDigest`, `StateDelta`, `Ack`, `SnapshotReq`, `SnapshotResp`)
 - [ ] Define merge invariants for all aggregate states:
   - [ ] Associative merge
   - [ ] Commutative merge
@@ -201,11 +202,21 @@ This checklist is designed to track implementation progress for a gossip-based d
   - [ ] Multi-stage build
   - [ ] Non-root runtime user
   - [ ] Minimal runtime image
+- [ ] Add local functional test startup:
+  - [ ] Create `deployments/docker-compose.local.yml`
+  - [ ] Wire 3-node local cluster (`node1`, `node2`, `node3`)
+  - [ ] Validate local boot with `docker compose up`
 - [ ] Create `deployments/docker-compose.yml`:
   - [ ] `node1..nodeN` services
   - [ ] Stable network and service names
   - [ ] Seed list env wiring
   - [ ] Healthchecks and restart policy
+- [ ] Add root `.env` tuning file:
+  - [ ] Gossip timing knobs (`GOSSIP_INTERVAL_MS`, `ANTI_ENTROPY_INTERVAL_MS`)
+  - [ ] Dissemination knob (`FANOUT`)
+  - [ ] Seed and identity variables (`SEED_NODES`, `NODE*_ID`)
+  - [ ] Logging and image variables (`LOG_LEVEL`, `APP_IMAGE`)
+- [ ] Add `.env.example` template for onboarding
 - [ ] Create `deployments/docker-compose.fault.yml`:
   - [ ] Fault-injection profile (if used)
   - [ ] Observability stack profile
@@ -263,11 +274,14 @@ This checklist is designed to track implementation progress for a gossip-based d
   - [ ] `test/e2e`
 - [ ] Create deployment directories/files:
   - [ ] `deployments/Dockerfile`
+  - [ ] `deployments/docker-compose.local.yml`
   - [ ] `deployments/docker-compose.yml`
   - [ ] `deployments/docker-compose.fault.yml`
   - [ ] `deployments/ec2/bootstrap.sh`
   - [ ] `deployments/ec2/runbook.md`
 - [ ] Create support files:
+  - [ ] `.env`
+  - [ ] `.env.example`
   - [ ] `scripts/loadgen.sh`
   - [ ] `scripts/kill_random_node.sh`
   - [ ] `scripts/check_convergence.sh`
