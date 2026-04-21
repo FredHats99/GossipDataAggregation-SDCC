@@ -1,0 +1,74 @@
+services:
+  node1:
+    image: ${APP_IMAGE}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: ${DOCKERFILE_PATH}
+    container_name: ${CLUSTER_NAME}-${NODE1_ID}
+    restart: unless-stopped
+    environment:
+      NODE_ID: ${NODE1_ID}
+      HTTP_ADDR: 0.0.0.0:8080
+      BIND_ADDR: 0.0.0.0:${GOSSIP_PORT}
+      API_ADDR: 0.0.0.0:8080
+      SEED_NODES: ${SEED_NODES}
+      GOSSIP_INTERVAL_MS: ${GOSSIP_INTERVAL_MS}
+      ANTI_ENTROPY_INTERVAL_MS: ${ANTI_ENTROPY_INTERVAL_MS}
+      FANOUT: ${FANOUT}
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "${API_PORT_BASE}:8080"
+      - "${GOSSIP_PORT}:${GOSSIP_PORT}/udp"
+    networks:
+      - gossip-net
+
+  node2:
+    image: ${APP_IMAGE}
+    pull_policy: never
+    container_name: ${CLUSTER_NAME}-${NODE2_ID}
+    depends_on:
+      - node1
+    restart: unless-stopped
+    environment:
+      NODE_ID: ${NODE2_ID}
+      HTTP_ADDR: 0.0.0.0:8080
+      BIND_ADDR: 0.0.0.0:${GOSSIP_PORT}
+      API_ADDR: 0.0.0.0:8080
+      SEED_NODES: ${SEED_NODES}
+      GOSSIP_INTERVAL_MS: ${GOSSIP_INTERVAL_MS}
+      ANTI_ENTROPY_INTERVAL_MS: ${ANTI_ENTROPY_INTERVAL_MS}
+      FANOUT: ${FANOUT}
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "18081:8080"
+      - "7001:${GOSSIP_PORT}/udp"
+    networks:
+      - gossip-net
+
+  node3:
+    image: ${APP_IMAGE}
+    pull_policy: never
+    container_name: ${CLUSTER_NAME}-${NODE3_ID}
+    depends_on:
+      - node1
+    restart: unless-stopped
+    environment:
+      NODE_ID: ${NODE3_ID}
+      HTTP_ADDR: 0.0.0.0:8080
+      BIND_ADDR: 0.0.0.0:${GOSSIP_PORT}
+      API_ADDR: 0.0.0.0:8080
+      SEED_NODES: ${SEED_NODES}
+      GOSSIP_INTERVAL_MS: ${GOSSIP_INTERVAL_MS}
+      ANTI_ENTROPY_INTERVAL_MS: ${ANTI_ENTROPY_INTERVAL_MS}
+      FANOUT: ${FANOUT}
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "18082:8080"
+      - "7002:${GOSSIP_PORT}/udp"
+    networks:
+      - gossip-net
+
+networks:
+  gossip-net:
+    name: ${CLUSTER_NAME}-net

@@ -24,36 +24,36 @@ This checklist is designed to track implementation progress for a gossip-based d
   - [x] Message envelope fields (`type`, `seq`, `timestamp`, `checksum`, `from`)
   - [x] Message types (`Ping`, `StateDigest`, `StateDelta`, `Ack`, `SnapshotReq`, `SnapshotResp`)
 - [ ] Define merge invariants for all aggregate states:
-  - [ ] Associative merge
-  - [ ] Commutative merge
-  - [ ] Idempotent merge
-- [ ] Define aggregation interface contract:
-  - [ ] `Update(value)`
-  - [ ] `Merge(peerState)`
-  - [ ] `Estimate()`
-  - [ ] `Serialize()/Deserialize()`
-- [ ] Define versioning strategy:
-  - [ ] State version/vector clock/Lamport rule
-  - [ ] Backward compatibility plan for protocol evolution
+  - [x] Associative merge
+  - [x] Commutative merge
+  - [x] Idempotent merge
+- [x] Define aggregation interface contract:
+  - [x] `Update(value)`
+  - [x] `Merge(peerState)`
+  - [x] `Estimate()`
+  - [x] `Serialize()/Deserialize()`
+- [x] Define versioning strategy:
+  - [x] State version/vector clock/Lamport rule
+  - [x] Backward compatibility plan for protocol evolution
 
 ## 2) Base Go Module and Clean Architecture
 
-- [ ] Initialize core module:
-  - [ ] `go.mod` and Go toolchain setup
-  - [ ] Base `Makefile` targets (`build`, `test`, `lint`, `run`)
-- [ ] Create app bootstrap:
-  - [ ] Dependency wiring in `internal/app`
-  - [ ] Graceful shutdown (SIGTERM/SIGINT)
-  - [ ] Context propagation and cancellation
-- [ ] Add configuration system:
-  - [ ] File + environment override
-  - [ ] Validation and default values
-- [ ] Add structured logging and error policy:
-  - [ ] Log levels and key fields (`node_id`, `peer`, `msg_type`)
-  - [ ] Error classification (`recoverable`, `fatal`)
-- [ ] Add health endpoints scaffold:
-  - [ ] `/healthz`
-  - [ ] `/readyz`
+- [x] Initialize core module:
+  - [x] `go.mod` and Go toolchain setup
+  - [x] Base `Makefile` targets (`build`, `test`, `lint`, `run`)
+- [x] Create app bootstrap:
+  - [x] Dependency wiring in `internal/app`
+  - [x] Graceful shutdown (SIGTERM/SIGINT)
+  - [x] Context propagation and cancellation
+- [x] Add configuration system:
+  - [x] File + environment override
+  - [x] Validation and default values
+- [x] Add structured logging and error policy:
+  - [x] Log levels and key fields (`node_id`, `peer`, `msg_type`)
+  - [x] Error classification (`recoverable`, `fatal`)
+- [x] Add health endpoints scaffold:
+  - [x] `/healthz`
+  - [x] `/readyz`
 
 ## 3) Membership and Peer Discovery
 

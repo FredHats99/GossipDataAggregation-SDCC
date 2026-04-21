@@ -1,0 +1,6 @@
+{
+  "node_id": "node-local",
+  "http_addr": ":8080",
+  "log_level": "info",
+  "shutdown_timeout_seconds": 10
+}

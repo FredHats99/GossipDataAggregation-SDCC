@@ -1,5 +1,45 @@
 # GossipDataAggregation-SDCC
 
+## Go Service Bootstrap (Step 2)
+
+The base Go module and clean-architecture bootstrap are available with:
+
+- `cmd/node/main.go` entrypoint
+- `internal/app` application wiring and graceful shutdown
+- `internal/config` config loading (file + env overrides)
+- `internal/api` health endpoints scaffold (`/healthz`, `/readyz`)
+- `internal/observability/logging` structured JSON logging
+
+### Local run
+
+Use default config values:
+
+```powershell
+make run
+```
+
+Use file config:
+
+```powershell
+$env:APP_CONFIG_PATH="configs/node.dev.json"
+make run
+```
+
+Override with env vars:
+
+```powershell
+$env:NODE_ID="node-1"
+$env:HTTP_ADDR=":8081"
+$env:LOG_LEVEL="debug"
+$env:SHUTDOWN_TIMEOUT_SECONDS="15"
+make run
+```
+
+### Health endpoints
+
+- `GET /healthz` returns process liveness
+- `GET /readyz` returns readiness (automatically set to not-ready during shutdown)
+
 ## Local Docker Setup (Functional Testing)
 
 This project includes a local Docker Compose setup to test gossip functionality with 3 nodes.
