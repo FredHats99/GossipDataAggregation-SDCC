@@ -30,6 +30,10 @@ Override with env vars:
 ```powershell
 $env:NODE_ID="node-1"
 $env:HTTP_ADDR=":8081"
+$env:BIND_ADDR="0.0.0.0:7000"
+$env:SEED_NODES="node1:7000,node2:7000,node3:7000"
+$env:GOSSIP_INTERVAL_MS="1000"
+$env:FANOUT="2"
 $env:LOG_LEVEL="debug"
 $env:SHUTDOWN_TIMEOUT_SECONDS="15"
 make run
@@ -39,6 +43,7 @@ make run
 
 - `GET /healthz` returns process liveness
 - `GET /readyz` returns readiness (automatically set to not-ready during shutdown)
+- `GET /members` returns current membership snapshot (`node_id`, `endpoint`, `status`, `last_seen`)
 
 ## Local Docker Setup (Functional Testing)
 

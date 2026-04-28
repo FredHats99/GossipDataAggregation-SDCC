@@ -57,18 +57,18 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 3) Membership and Peer Discovery
 
-- [ ] Implement static seed-based bootstrap:
-  - [ ] Seed parsing from config/env
-  - [ ] Join handshake
-- [ ] Implement gossip membership view:
-  - [ ] Periodic peer sampling
-  - [ ] Membership table with statuses (`alive`, `suspect`, `dead`)
-- [ ] Implement failure detection:
-  - [ ] Timeout or phi-based suspicion
-  - [ ] State transition thresholds and timers
-- [ ] Implement membership convergence tests:
-  - [ ] New node joins and becomes visible cluster-wide
-  - [ ] Dead node eventually marked dead
+- [x] Implement static seed-based bootstrap:
+  - [x] Seed parsing from config/env
+  - [x] Join handshake
+- [x] Implement gossip membership view:
+  - [x] Periodic peer sampling
+  - [x] Membership table with statuses (`alive`, `suspect`, `dead`)
+- [x] Implement failure detection:
+  - [x] Timeout or phi-based suspicion
+  - [x] State transition thresholds and timers
+- [x] Implement membership convergence tests:
+  - [x] New node joins and becomes visible cluster-wide
+  - [x] Dead node eventually marked dead
 
 ## 4) Gossip Transport Layer
 
