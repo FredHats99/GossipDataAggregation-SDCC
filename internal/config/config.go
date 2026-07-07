@@ -19,6 +19,8 @@ const (
 	envSeedNodes       = "SEED_NODES"
 	envGossipInterval  = "GOSSIP_INTERVAL_MS"
 	envFanout          = "FANOUT"
+	envTopKMax         = "TOPK_MAX"
+	envOutboundQueue   = "OUTBOUND_QUEUE_SIZE"
 	envLogLevel        = "LOG_LEVEL"
 	envShutdownTimeout = "SHUTDOWN_TIMEOUT_SECONDS"
 )
@@ -30,6 +32,8 @@ type Config struct {
 	SeedNodes       string `json:"seed_nodes"`
 	GossipInterval  int    `json:"gossip_interval_ms"`
 	Fanout          int    `json:"fanout"`
+	TopKMax         int    `json:"topk_max"`
+	OutboundQueue   int    `json:"outbound_queue_size"`
 	LogLevel        string `json:"log_level"`
 	ShutdownTimeout int    `json:"shutdown_timeout_seconds"`
 }
@@ -77,6 +81,12 @@ func (c Config) Validate() error {
 	if c.Fanout <= 0 {
 		return errors.New("fanout must be greater than zero")
 	}
+	if c.TopKMax <= 0 {
+		return errors.New("topk_max must be greater than zero")
+	}
+	if c.OutboundQueue <= 0 {
+		return errors.New("outbound_queue_size must be greater than zero")
+	}
 	if c.ShutdownTimeout <= 0 {
 		return errors.New("shutdown_timeout_seconds must be greater than zero")
 	}
@@ -104,6 +114,8 @@ func defaultConfig() Config {
 		SeedNodes:       "",
 		GossipInterval:  1000,
 		Fanout:          2,
+		TopKMax:         10,
+		OutboundQueue:   128,
 		LogLevel:        "info",
 		ShutdownTimeout: 10,
 	}
@@ -140,6 +152,12 @@ func merge(base, override Config) Config {
 	if override.Fanout > 0 {
 		base.Fanout = override.Fanout
 	}
+	if override.TopKMax > 0 {
+		base.TopKMax = override.TopKMax
+	}
+	if override.OutboundQueue > 0 {
+		base.OutboundQueue = override.OutboundQueue
+	}
 	if strings.TrimSpace(override.LogLevel) != "" {
 		base.LogLevel = override.LogLevel
 	}
@@ -170,6 +188,16 @@ func applyEnvOverrides(cfg Config) Config {
 	if v := strings.TrimSpace(os.Getenv(envFanout)); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
 			cfg.Fanout = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv(envTopKMax)); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.TopKMax = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv(envOutboundQueue)); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.OutboundQueue = parsed
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv(envLogLevel)); v != "" {

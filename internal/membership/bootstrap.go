@@ -23,16 +23,19 @@ const (
 )
 
 type Bootstrapper struct {
-	nodeID         string
-	bindAddr       string
-	seeds          []string
-	fanout         int
-	gossipInterval time.Duration
-	logger         *slog.Logger
-	table          *Table
-	codec          *transport.JSONCodec
-	seq            atomic.Uint64
+	nodeID          string
+	bindAddr        string
+	seeds           []string
+	fanout          int
+	gossipInterval  time.Duration
+	logger          *slog.Logger
+	table           *Table
+	codec           *transport.JSONCodec
+	seq             atomic.Uint64
+	envelopeHandler EnvelopeHandler
 }
+
+type EnvelopeHandler func(context.Context, transport.Envelope)
 
 type pingPayload struct {
 	NodeID      string `json:"node_id"`
@@ -65,6 +68,10 @@ func NewBootstrapper(
 	}
 }
 
+func (b *Bootstrapper) SetEnvelopeHandler(handler EnvelopeHandler) {
+	b.envelopeHandler = handler
+}
+
 func (b *Bootstrapper) StartJoinListener(ctx context.Context) error {
 	udp, err := transport.NewUDPFrameTransport(b.bindAddr, transport.DefaultMaxFrameSize)
 	if err != nil {
@@ -93,7 +100,7 @@ func (b *Bootstrapper) StartJoinListener(ctx context.Context) error {
 				continue
 			}
 			if message.Type != "Ping" {
-				b.logger.Debug("membership join listener ignored non-ping message", "peer", remotePeer, "msg_type", message.Type)
+				b.dispatchEnvelope(ctx, message, remotePeer)
 				continue
 			}
 			peerNodeID, err := decodePingNodeID(message)
@@ -344,6 +351,14 @@ func (b *Bootstrapper) joinSeed(seed string) (string, error) {
 
 func (b *Bootstrapper) MembersSnapshot() []Member {
 	return b.table.Snapshot()
+}
+
+func (b *Bootstrapper) dispatchEnvelope(ctx context.Context, message transport.Envelope, remotePeer string) {
+	if b.envelopeHandler == nil {
+		b.logger.Debug("membership listener ignored non-ping message", "peer", remotePeer, "msg_type", message.Type)
+		return
+	}
+	go b.envelopeHandler(ctx, message)
 }
 
 func (b *Bootstrapper) newEnvelope(messageType string, payload any) (transport.Envelope, error) {

@@ -38,6 +38,8 @@ $env:BIND_ADDR="0.0.0.0:7000"
 $env:SEED_NODES="node1:7000,node2:7000,node3:7000"
 $env:GOSSIP_INTERVAL_MS="1000"
 $env:FANOUT="2"
+$env:TOPK_MAX="10"
+$env:OUTBOUND_QUEUE_SIZE="128"
 $env:LOG_LEVEL="debug"
 $env:SHUTDOWN_TIMEOUT_SECONDS="15"
 make run
@@ -48,6 +50,23 @@ make run
 - `GET /healthz` returns process liveness
 - `GET /readyz` returns readiness (automatically set to not-ready during shutdown)
 - `GET /members` returns current membership snapshot (`node_id`, `endpoint`, `status`, `last_seen`)
+- `POST /update` applies a local `SUM` or `TOPK` update and emits a gossip delta
+- `GET /aggregate/sum` returns the local SUM estimate
+- `GET /aggregate/topk?k=...` returns the local TOP-K estimate
+
+Example SUM update:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/update -ContentType application/json -Body '{"aggregate_type":"SUM","value":5}'
+Invoke-RestMethod -Uri http://localhost:8080/aggregate/sum
+```
+
+Example TOP-K update:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8080/update -ContentType application/json -Body '{"aggregate_type":"TOPK","value":{"item_id":"item-a","score":9.5}}'
+Invoke-RestMethod -Uri 'http://localhost:8080/aggregate/topk?k=3'
+```
 
 ### Membership transport
 
@@ -71,6 +90,20 @@ The old text protocol (`PING <node_id>` / `ACK <node_id>`) is no longer used.
 These components are implemented and tested. `MessageGuard` is not yet wired
 into membership runtime because restart handling needs `incarnation` or
 persistent sequence semantics.
+
+### Gossip aggregation runtime
+
+Step 6 now wires aggregation deltas into runtime gossip flow:
+
+- local updates enqueue `StateDelta` payloads
+- `internal/gossip/delta.Runtime` wraps deltas in `StateDelta` envelopes
+- outbound deltas are sent to sampled peers with `RetryingSender`
+- incoming `StateDelta` envelopes are dispatched from the membership UDP listener
+- received deltas are merged into the local pipeline and forwarded only when
+  the merge advances local state
+
+The local Docker convergence run has been verified with three nodes for
+membership, `SUM`, and `TOPK` propagation.
 
 ## Local Docker Setup (Functional Testing)
 
@@ -113,6 +146,7 @@ Edit `.env` to modify:
 
 - Gossip timing: `GOSSIP_INTERVAL_MS`, `ANTI_ENTROPY_INTERVAL_MS`
 - Fanout: `FANOUT`
+- Aggregation runtime: `TOPK_MAX`, `OUTBOUND_QUEUE_SIZE`
 - Seed topology: `SEED_NODES`
 - Logging: `LOG_LEVEL`
 - Exposed ports: `API_PORT_BASE`, `GOSSIP_PORT` (node2/node3 host ports are set in compose)

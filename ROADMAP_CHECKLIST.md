@@ -117,17 +117,18 @@ This checklist is designed to track implementation progress for a gossip-based d
   - [x] Validate input
   - [x] Apply to local state
   - [x] Emit delta for gossip
-- [ ] Implement receive/merge pipeline:
+- [x] Implement receive/merge pipeline:
   - [x] Validate message payload
   - [x] Merge state/delta
-  - [ ] Trigger forward gossip on advancement
+  - [x] Trigger forward gossip on advancement
 - [x] Add backpressure controls:
   - [x] Queue size limits
   - [x] Drop strategy + metrics
-- [ ] Verify convergence in a multi-node local run:
+- [x] Verify convergence in a multi-node local run:
   - [x] Deterministic simulated multi-manager workload
   - [x] Eventual equal estimates across managers under full delta delivery
-  - [ ] Networked multi-node gossip run
+  - [x] Runtime `StateDelta` send/receive/forward wiring over transport interfaces
+  - [x] Networked multi-node gossip run
 
 ## 7) Anti-Entropy and State Sync
 
@@ -160,16 +161,17 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 9) API and Observability
 
-- [ ] Implement HTTP API in `internal/api`:
-  - [ ] `POST /update`
-  - [ ] `GET /aggregate/sum`
-  - [ ] `GET /aggregate/topk?k=...`
-  - [ ] `GET /members`
-  - [ ] `GET /healthz`
-  - [ ] `GET /readyz`
+- [x] Implement HTTP API in `internal/api`:
+  - [x] `POST /update`
+  - [x] `GET /aggregate/sum`
+  - [x] `GET /aggregate/topk?k=...`
+  - [x] `GET /members`
+  - [x] `GET /healthz`
+  - [x] `GET /readyz`
 - [ ] Add input validation and error responses:
-  - [ ] Consistent error schema
-  - [ ] Proper status codes
+  - [x] Basic JSON error schema for aggregate endpoints
+  - [x] Basic method/status handling for aggregate endpoints
+  - [ ] Project-wide consistent error schema
 - [ ] Add metrics in `internal/observability`:
   - [ ] Gossip send/receive counters
   - [ ] Merge counts and failures
@@ -209,7 +211,7 @@ This checklist is designed to track implementation progress for a gossip-based d
   - [x] Create root `docker-compose.yml`
   - [x] Create `deployments/docker-compose.local.yml`
   - [x] Wire 3-node local cluster (`node1`, `node2`, `node3`)
-  - [ ] Validate local boot with `docker compose up`
+  - [x] Validate local boot with `docker compose up`
 - [ ] Create `deployments/docker-compose.yml`:
   - [ ] `node1..nodeN` services
   - [ ] Stable network and service names

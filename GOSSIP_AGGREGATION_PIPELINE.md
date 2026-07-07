@@ -14,15 +14,15 @@ Implemented:
 - delta creation after successful local updates
 - outbound bounded queue for gossip dissemination
 - receive/merge pipeline for incoming `StateDelta`
+- runtime sender loop for queued `StateDelta` messages
+- UDP envelope dispatch from the membership listener to the delta runtime
+- forwarding received deltas when they advance local aggregate state
+- HTTP endpoints for update/read smoke workflows
 - duplicate-safe merge behavior inherited from the aggregators
 - simulated multi-node convergence test
 
 Not implemented yet:
 
-- background sender loop over real peers
-- real network `StateDelta` exchange over `transport.Sender`
-- forwarding received deltas to other peers
-- API endpoints for updates and reads
 - anti-entropy digest/snapshot repair
 
 ## Package Layout
@@ -39,6 +39,18 @@ Not implemented yet:
   - emits outbound deltas
   - applies received deltas
   - tracks outbound queue drops
+
+- `internal/gossip/delta`
+  - consumes outbound deltas from the pipeline
+  - wraps deltas in protocol envelopes
+  - sends deltas to sampled peers through `transport.Sender`
+  - applies received `StateDelta` envelopes
+  - forwards advancing received deltas to peers
+
+- `internal/api`
+  - exposes `POST /update`
+  - exposes `GET /aggregate/sum`
+  - exposes `GET /aggregate/topk?k=...`
 
 ## Local Update Pipeline
 
@@ -87,6 +99,18 @@ For `TOP-K`:
 The method returns `advanced=true` only when local state actually changed.
 Duplicate deltas are safe and return `advanced=false`.
 
+The runtime-level receive path is `delta.Runtime.HandleEnvelope`.
+
+For `StateDelta` envelopes:
+
+1. duplicate/stale envelopes are filtered by `transport.MessageGuard`
+2. payload bytes are decoded into `protocol.StateDelta`
+3. the pipeline merge path is invoked
+4. advancing merges are forwarded to sampled peers
+
+The forwarded envelope preserves original `from` and `seq` metadata so other
+nodes can suppress duplicate paths with the same guard semantics.
+
 ## Backpressure
 
 Each manager has a bounded outbound queue.
@@ -111,7 +135,23 @@ Reason:
 This is an MVP policy. Later work can add priority, coalescing, or per-peer
 queues.
 
-## Convergence Test
+## HTTP Smoke Workflow
+
+The runtime can now be exercised through HTTP:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:18080/update -ContentType application/json -Body '{"aggregate_type":"SUM","value":5}'
+Invoke-RestMethod -Uri http://localhost:18080/aggregate/sum
+```
+
+For TOP-K:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:18080/update -ContentType application/json -Body '{"aggregate_type":"TOPK","value":{"item_id":"item-a","score":9.5}}'
+Invoke-RestMethod -Uri 'http://localhost:18080/aggregate/topk?k=3'
+```
+
+## Convergence Tests
 
 `TestManagersConvergeWithBroadcastDeltas` creates three managers, applies local
 `SUM` and `TOP-K` updates on different nodes, broadcasts the emitted deltas to
@@ -125,16 +165,21 @@ This verifies:
 - all managers can converge to the same `SUM` and `TOP-K` under full delta
   delivery
 
-It is not a network test. Networked gossip convergence belongs to the next
-runtime integration step.
+That unit test is not a network test; it covers deterministic in-memory
+delivery.
+
+The Docker Compose runtime path was also verified locally with three nodes:
+
+- `docker compose -f docker-compose.yml up -d --build`
+- `GET /healthz` and `GET /readyz` returned healthy responses on all nodes
+- `/members` converged to three `alive` members on all nodes
+- a `SUM` update posted to node1 converged to value `5` on node1, node2, and node3
+- a `TOPK` update posted to node2 converged to the same item on node1, node2, and node3
 
 ## Step 7/Runtime Notes
 
 The next runtime wiring should:
 
-- serialize `protocol.StateDelta` as envelope payload for `StateDelta` messages
-- send queued deltas through `transport.RetryingSender`
-- receive envelopes through `transport.GuardedReceiver`
-- apply decoded deltas through `Manager.ApplyReceivedDelta`
-- forward deltas when merges advance local state
+- decide whether to replace the direct listener callback with a bounded inbound queue
+- decide how much of `MessageGuard` should be incarnation-aware before crash/restart work
 - add anti-entropy digest and snapshot repair for dropped or missed deltas

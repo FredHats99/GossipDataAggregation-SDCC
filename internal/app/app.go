@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"gossipdataaggregation-sdcc/internal/aggregation/pipeline"
 	"gossipdataaggregation-sdcc/internal/api"
 	"gossipdataaggregation-sdcc/internal/config"
+	deltagossip "gossipdataaggregation-sdcc/internal/gossip/delta"
+	"gossipdataaggregation-sdcc/internal/gossip/transport"
 	"gossipdataaggregation-sdcc/internal/membership"
 	"gossipdataaggregation-sdcc/internal/observability/logging"
 )
@@ -16,11 +20,14 @@ import (
 var ErrServerClosed = errors.New("http server closed")
 
 type App struct {
-	cfg         config.Config
-	logger      *slog.Logger
-	server      *http.Server
-	health      *api.HealthHandler
-	bootstrapper *membership.Bootstrapper
+	cfg            config.Config
+	logger         *slog.Logger
+	server         *http.Server
+	health         *api.HealthHandler
+	bootstrapper   *membership.Bootstrapper
+	aggregation    *pipeline.Manager
+	deltaRuntime   *deltagossip.Runtime
+	deltaTransport *transport.UDPFrameTransport
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -29,6 +36,31 @@ func New(cfg config.Config) (*App, error) {
 	}
 
 	logger := logging.NewJSONLogger(cfg.NodeID, cfg.LogLevel)
+	aggregation, err := pipeline.New(pipeline.Config{
+		NodeID:            cfg.NodeID,
+		TopKMax:           cfg.TopKMax,
+		OutboundQueueSize: cfg.OutboundQueue,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create aggregation pipeline: %w", err)
+	}
+
+	codec := transport.NewJSONCodec()
+	deltaTransport, err := transport.NewUDPFrameTransport(":0", transport.DefaultMaxFrameSize)
+	if err != nil {
+		return nil, fmt.Errorf("create state delta UDP transport: %w", err)
+	}
+	deltaSender, err := transport.NewEncodingSender(deltaTransport, codec)
+	if err != nil {
+		_ = deltaTransport.Close()
+		return nil, fmt.Errorf("create state delta sender: %w", err)
+	}
+	retryingSender, err := transport.NewRetryingSender(deltaSender, transport.DefaultRetryConfig())
+	if err != nil {
+		_ = deltaTransport.Close()
+		return nil, fmt.Errorf("create retrying state delta sender: %w", err)
+	}
+
 	bootstrapper := membership.NewBootstrapper(
 		cfg.NodeID,
 		cfg.BindAddr,
@@ -37,11 +69,27 @@ func New(cfg config.Config) (*App, error) {
 		cfg.Fanout,
 		logger,
 	)
+	deltaRuntime, err := deltagossip.NewRuntime(deltagossip.Config{
+		NodeID:       cfg.NodeID,
+		SelfEndpoint: cfg.BindAddr,
+		Peers:        cfg.SeedNodeList(),
+		Fanout:       cfg.Fanout,
+		SendTimeout:  2 * time.Second,
+		Logger:       logger,
+	}, aggregation, retryingSender)
+	if err != nil {
+		_ = deltaTransport.Close()
+		return nil, fmt.Errorf("create state delta runtime: %w", err)
+	}
+	bootstrapper.SetEnvelopeHandler(deltaRuntime.HandleEnvelope)
+
 	mux := http.NewServeMux()
 	health := api.NewHealthHandler()
 	health.Register(mux)
 	members := api.NewMembersHandler(bootstrapper.MembersSnapshot)
 	members.Register(mux)
+	aggregates := api.NewAggregationHandler(aggregation)
+	aggregates.Register(mux)
 
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -49,11 +97,14 @@ func New(cfg config.Config) (*App, error) {
 	}
 
 	return &App{
-		cfg:          cfg,
-		logger:       logger,
-		server:       server,
-		health:       health,
-		bootstrapper: bootstrapper,
+		cfg:            cfg,
+		logger:         logger,
+		server:         server,
+		health:         health,
+		bootstrapper:   bootstrapper,
+		aggregation:    aggregation,
+		deltaRuntime:   deltaRuntime,
+		deltaTransport: deltaTransport,
 	}, nil
 }
 
@@ -71,6 +122,7 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("membership listener failed: %w", err)
 	}
 
+	a.deltaRuntime.Start(ctx)
 	errCh := make(chan error, 1)
 	go func() {
 		if err := a.server.ListenAndServe(); err != nil {
@@ -103,6 +155,10 @@ func (a *App) Run(ctx context.Context) error {
 
 func (a *App) shutdown() error {
 	a.health.SetReady(false)
+	a.aggregation.Close()
+	if a.deltaTransport != nil {
+		_ = a.deltaTransport.Close()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.ShutdownDuration())
 	defer cancel()
 	return a.server.Shutdown(ctx)

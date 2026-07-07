@@ -187,17 +187,70 @@ Step 4 is not yet fully applied to all runtime paths:
 - membership uses the envelope codec and UDP frame transport
 - membership does not yet use `MessageGuard` because restart/incarnation
   semantics must be finalized first
-- aggregation gossip runtime does not exist yet, so Step 4 wrappers are ready
-  for future Step 6 integration
+- aggregation gossip runtime now uses the sender-side wrappers for `StateDelta`
+  dissemination; the receive side enters through membership listener dispatch
+
+## Step 6 Runtime Wiring
+
+Step 6 now has a runtime path for `StateDelta` messages.
+
+Implemented in this pass:
+
+- added `internal/gossip/delta.Runtime`
+  - consumes outbound deltas from `pipeline.Manager.NextOutbound`
+  - wraps local deltas in `StateDelta` envelopes
+  - sends envelopes to sampled peers through `transport.Sender`
+  - accepts incoming `StateDelta` envelopes
+  - applies decoded deltas through `Manager.ApplyReceivedDelta`
+  - forwards received deltas only when merge returns `advanced=true`
+- extended membership listener dispatch
+  - `Ping` remains handled by membership
+  - non-`Ping` envelopes are delegated to an optional envelope handler
+  - dispatch is asynchronous so delta forwarding does not block membership pings
+- wired application startup
+  - aggregation pipeline is created from config
+  - delta runtime uses `EncodingSender` + `RetryingSender`
+  - membership listener delegates `StateDelta` envelopes to the delta runtime
+- added HTTP aggregate endpoints for smoke testing
+  - `POST /update`
+  - `GET /aggregate/sum`
+  - `GET /aggregate/topk?k=...`
+- added runtime configuration knobs
+  - `TOPK_MAX`
+  - `OUTBOUND_QUEUE_SIZE`
+
+Tests added:
+
+- aggregate API update/read tests
+- delta runtime outbound send test
+- delta runtime forward-on-advancement and duplicate suppression test
+
+Verification status:
+
+- Docker Desktop was started locally and Docker engine version `28.0.1`
+  responded.
+- `docker compose -f docker-compose.yml up -d --build` completed successfully.
+- All three local containers were running:
+  - `gossip-local-node1` on API port `18080`
+  - `gossip-local-node2` on API port `18081`
+  - `gossip-local-node3` on API port `18082`
+- `GET /healthz` and `GET /readyz` returned successful responses on all nodes.
+- `GET /members` showed all three members as `alive` on all nodes.
+- A `SUM` update sent to node1 converged to value `5` on all nodes.
+- A `TOPK` update sent to node2 converged to the same top item on all nodes.
+- `gofmt` was run through the `golang:1.24` Docker image.
+- Unit suite passed through `scripts/go-test.ps1`.
+- Integration suite passed through `scripts/go-test.ps1 -Integration`.
 
 ## Remaining Design Work
 
-Recommended next decisions before Step 5/6:
+Recommended next decisions before Step 7:
 
 - use `incarnation` in membership to distinguish node restarts from stale
   messages
 - decide whether envelope `seq` is persisted or reset per incarnation
 - disseminate membership entries through gossip messages instead of probing
   only configured seeds/peers
-- wire `RetryingSender` and `GuardedReceiver` into the future aggregate gossip
-  receive/send pipeline
+- validate Docker Compose multi-node convergence for `SUM` and `TOPK`
+- decide whether the delta runtime inbound path should use a bounded queue
+  instead of direct asynchronous callback dispatch
