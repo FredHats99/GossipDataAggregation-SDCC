@@ -1,0 +1,4 @@
+# Local environment overrides / secrets
+.env
+.env.local
+.env.*.local

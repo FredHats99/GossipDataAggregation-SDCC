@@ -1,0 +1,74 @@
+services:
+  node1:
+    image: ${APP_IMAGE:-gossip-agg:local}
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE_PATH:-deployments/Dockerfile}
+    container_name: ${CLUSTER_NAME:-gossip-local}-${NODE1_ID:-node1}
+    restart: unless-stopped
+    environment:
+      NODE_ID: ${NODE1_ID:-node1}
+      HTTP_ADDR: 0.0.0.0:8080
+      BIND_ADDR: 0.0.0.0:${GOSSIP_PORT:-7000}
+      API_ADDR: 0.0.0.0:8080
+      SEED_NODES: ${SEED_NODES:-node1:7000,node2:7000,node3:7000}
+      GOSSIP_INTERVAL_MS: ${GOSSIP_INTERVAL_MS:-1000}
+      ANTI_ENTROPY_INTERVAL_MS: ${ANTI_ENTROPY_INTERVAL_MS:-15000}
+      FANOUT: ${FANOUT:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${API_PORT_BASE:-18080}:8080"
+      - "${GOSSIP_PORT:-7000}:${GOSSIP_PORT:-7000}/udp"
+    networks:
+      - gossip-net
+
+  node2:
+    image: ${APP_IMAGE:-gossip-agg:local}
+    pull_policy: never
+    depends_on:
+      - node1
+    container_name: ${CLUSTER_NAME:-gossip-local}-${NODE2_ID:-node2}
+    restart: unless-stopped
+    environment:
+      NODE_ID: ${NODE2_ID:-node2}
+      HTTP_ADDR: 0.0.0.0:8080
+      BIND_ADDR: 0.0.0.0:${GOSSIP_PORT:-7000}
+      API_ADDR: 0.0.0.0:8080
+      SEED_NODES: ${SEED_NODES:-node1:7000,node2:7000,node3:7000}
+      GOSSIP_INTERVAL_MS: ${GOSSIP_INTERVAL_MS:-1000}
+      ANTI_ENTROPY_INTERVAL_MS: ${ANTI_ENTROPY_INTERVAL_MS:-15000}
+      FANOUT: ${FANOUT:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "18081:8080"
+      - "7001:${GOSSIP_PORT:-7000}/udp"
+    networks:
+      - gossip-net
+
+  node3:
+    image: ${APP_IMAGE:-gossip-agg:local}
+    pull_policy: never
+    depends_on:
+      - node1
+    container_name: ${CLUSTER_NAME:-gossip-local}-${NODE3_ID:-node3}
+    restart: unless-stopped
+    environment:
+      NODE_ID: ${NODE3_ID:-node3}
+      HTTP_ADDR: 0.0.0.0:8080
+      BIND_ADDR: 0.0.0.0:${GOSSIP_PORT:-7000}
+      API_ADDR: 0.0.0.0:8080
+      SEED_NODES: ${SEED_NODES:-node1:7000,node2:7000,node3:7000}
+      GOSSIP_INTERVAL_MS: ${GOSSIP_INTERVAL_MS:-1000}
+      ANTI_ENTROPY_INTERVAL_MS: ${ANTI_ENTROPY_INTERVAL_MS:-15000}
+      FANOUT: ${FANOUT:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "18082:8080"
+      - "7002:${GOSSIP_PORT:-7000}/udp"
+    networks:
+      - gossip-net
+
+networks:
+  gossip-net:
+    name: ${CLUSTER_NAME:-gossip-local}-net

@@ -7,10 +7,10 @@ This checklist is designed to track implementation progress for a gossip-based d
 - [x] Confirm selected aggregation operations for MVP:
   - [x] `SUM` (MVP strategy: exact CRDT G-Counter)
   - [x] `TOP-K` (MVP strategy: exact deterministic bounded candidate set)
-- [ ] Define non-functional targets:
-  - [ ] Cluster size target (e.g., 3/5/10 nodes)
-  - [ ] Convergence expectation (eventual, bounded time under normal network)
-  - [ ] Fault model (node crash, restart, packet loss, partition)
+- [x] Define non-functional targets (see `NON_FUNCTIONAL_TARGETS.md`):
+  - [x] Cluster size target (3/5/10 progressive tiers)
+  - [x] Convergence expectation (eventual + soft SLO under normal network)
+  - [x] Fault model (phased crash/restart, loss/delay, partition/heal)
 - [x] Decide coding standards:
   - [x] Go version
   - [x] Lint/test tooling
@@ -60,9 +60,11 @@ This checklist is designed to track implementation progress for a gossip-based d
 - [x] Implement static seed-based bootstrap:
   - [x] Seed parsing from config/env
   - [x] Join handshake
-- [x] Implement gossip membership view:
-  - [x] Periodic peer sampling
+- [ ] Implement gossip membership view:
+  - [x] Periodic seed/peer probing
   - [x] Membership table with statuses (`alive`, `suspect`, `dead`)
+  - [ ] Disseminate membership entries through gossip messages
+  - [x] Align membership `Ping`/`Ack` with protocol envelope
 - [x] Implement failure detection:
   - [x] Timeout or phi-based suspicion
   - [x] State transition thresholds and timers
@@ -72,59 +74,60 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 4) Gossip Transport Layer
 
-- [ ] Implement transport abstraction in `internal/gossip/transport`:
-  - [ ] Sender interface
-  - [ ] Receiver interface
-  - [ ] Pluggable codec
-- [ ] Implement message encoding/decoding:
-  - [ ] JSON or protobuf encoding choice
-  - [ ] Envelope validation and checksum verification
-- [ ] Add reliability controls:
-  - [ ] Retry/backoff for selected message types
-  - [ ] Duplicate suppression cache
-  - [ ] Max message size and reject policy
-- [ ] Add anti-loop protections:
-  - [ ] Seen-message cache with TTL
-  - [ ] Sequence monotonicity per sender
-- [ ] Add transport tests:
-  - [ ] Serialization round-trip
-  - [ ] Duplicate handling
-  - [ ] Malformed message handling
+- [x] Implement transport abstraction in `internal/gossip/transport`:
+  - [x] Sender interface
+  - [x] Receiver interface
+  - [x] Pluggable codec
+- [x] Implement message encoding/decoding:
+  - [x] JSON encoding choice
+  - [x] Envelope validation and checksum verification
+- [x] Add reliability controls:
+  - [x] Retry/backoff for selected message types
+  - [x] Duplicate suppression cache
+  - [x] Max message size and reject policy for UDP frames
+- [x] Add anti-loop protections:
+  - [x] Seen-message cache with TTL
+  - [x] Sequence monotonicity per sender
+- [x] Add transport tests:
+  - [x] Serialization round-trip
+  - [x] Duplicate handling
+  - [x] Malformed/invalid envelope handling
 
 ## 5) CRDT-Style Aggregation State
 
-- [ ] Implement `SUM` aggregator:
-  - [ ] Per-node contribution map
-  - [ ] Merge by element-wise max (if G-Counter style)
-  - [ ] Read estimate as total sum
-- [ ] Implement `TOP-K` aggregator:
-  - [ ] Mergeable bounded candidate structure
-  - [ ] Deterministic tie-breaking
-  - [ ] Bounded memory guarantees
-- [ ] Define serialization contract for aggregate states:
-  - [ ] Versioned schema
-  - [ ] Compatibility tests
-- [ ] Add property-style merge tests:
-  - [ ] Commutativity test cases
-  - [ ] Associativity test cases
-  - [ ] Idempotency test cases
+- [x] Implement `SUM` aggregator:
+  - [x] Per-node contribution map
+  - [x] Merge by element-wise max (G-Counter style)
+  - [x] Read estimate as total sum
+- [x] Implement `TOP-K` aggregator:
+  - [x] Mergeable bounded candidate structure
+  - [x] Deterministic tie-breaking
+  - [x] Bounded memory guarantees
+- [x] Define serialization contract for aggregate states:
+  - [x] Versioned schema
+  - [x] Compatibility/roundtrip tests
+- [x] Add property-style merge tests:
+  - [x] Commutativity test cases
+  - [x] Associativity test cases
+  - [x] Idempotency test cases
 
 ## 6) Wire Gossip + Aggregation
 
-- [ ] Implement local update pipeline:
-  - [ ] Validate input
-  - [ ] Apply to local state
-  - [ ] Emit delta for gossip
+- [x] Implement local update pipeline:
+  - [x] Validate input
+  - [x] Apply to local state
+  - [x] Emit delta for gossip
 - [ ] Implement receive/merge pipeline:
-  - [ ] Validate sender/message
-  - [ ] Merge state/delta
+  - [x] Validate message payload
+  - [x] Merge state/delta
   - [ ] Trigger forward gossip on advancement
-- [ ] Add backpressure controls:
-  - [ ] Queue size limits
-  - [ ] Drop strategy + metrics
+- [x] Add backpressure controls:
+  - [x] Queue size limits
+  - [x] Drop strategy + metrics
 - [ ] Verify convergence in a multi-node local run:
-  - [ ] Random update workload
-  - [ ] Eventual equal estimates across nodes
+  - [x] Deterministic simulated multi-manager workload
+  - [x] Eventual equal estimates across managers under full delta delivery
+  - [ ] Networked multi-node gossip run
 
 ## 7) Anti-Entropy and State Sync
 
@@ -178,10 +181,10 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 10) Testing Strategy (Including Robustness to Crash)
 
-- [ ] Unit tests:
-  - [ ] Aggregator merge laws
-  - [ ] Transport codec and validation
-  - [ ] Membership transitions
+- [x] Unit tests:
+  - [x] Aggregator merge laws
+  - [x] Transport codec and validation
+  - [x] Membership transitions
 - [ ] Integration tests (`test/integration`):
   - [ ] 3+ node converge on `SUM`
   - [ ] 3+ node converge on `TOP-K`
@@ -198,25 +201,26 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 11) Docker Compose for Local and EC2
 
-- [ ] Create Dockerfile:
-  - [ ] Multi-stage build
-  - [ ] Non-root runtime user
-  - [ ] Minimal runtime image
+- [x] Create Dockerfile:
+  - [x] Multi-stage build
+  - [x] Non-root runtime user
+  - [x] Minimal runtime image
 - [ ] Add local functional test startup:
-  - [ ] Create `deployments/docker-compose.local.yml`
-  - [ ] Wire 3-node local cluster (`node1`, `node2`, `node3`)
+  - [x] Create root `docker-compose.yml`
+  - [x] Create `deployments/docker-compose.local.yml`
+  - [x] Wire 3-node local cluster (`node1`, `node2`, `node3`)
   - [ ] Validate local boot with `docker compose up`
 - [ ] Create `deployments/docker-compose.yml`:
   - [ ] `node1..nodeN` services
   - [ ] Stable network and service names
   - [ ] Seed list env wiring
   - [ ] Healthchecks and restart policy
-- [ ] Add root `.env` tuning file:
-  - [ ] Gossip timing knobs (`GOSSIP_INTERVAL_MS`, `ANTI_ENTROPY_INTERVAL_MS`)
-  - [ ] Dissemination knob (`FANOUT`)
-  - [ ] Seed and identity variables (`SEED_NODES`, `NODE*_ID`)
-  - [ ] Logging and image variables (`LOG_LEVEL`, `APP_IMAGE`)
-- [ ] Add `.env.example` template for onboarding
+- [x] Add root `.env` tuning file:
+  - [x] Gossip timing knobs (`GOSSIP_INTERVAL_MS`, `ANTI_ENTROPY_INTERVAL_MS`)
+  - [x] Dissemination knob (`FANOUT`)
+  - [x] Seed and identity variables (`SEED_NODES`, `NODE*_ID`)
+  - [x] Logging and image variables (`LOG_LEVEL`, `APP_IMAGE`)
+- [x] Add `.env.example` template for onboarding
 - [ ] Create `deployments/docker-compose.fault.yml`:
   - [ ] Fault-injection profile (if used)
   - [ ] Observability stack profile
@@ -246,45 +250,48 @@ This checklist is designed to track implementation progress for a gossip-based d
 ## Project Structure Implementation Checklist
 
 - [ ] Create root layout:
-  - [ ] `cmd/node/main.go`
-  - [ ] `internal/`
+  - [x] `cmd/node/main.go`
+  - [x] `internal/`
   - [ ] `pkg/`
   - [ ] `test/`
-  - [ ] `deployments/`
-  - [ ] `scripts/`
-  - [ ] `configs/`
+  - [x] `deployments/`
+  - [x] `scripts/`
+  - [x] `configs/`
 - [ ] Create internal package directories:
-  - [ ] `internal/app`
-  - [ ] `internal/config`
-  - [ ] `internal/membership`
-  - [ ] `internal/gossip/transport`
-  - [ ] `internal/gossip/protocol`
+  - [x] `internal/app`
+  - [x] `internal/config`
+  - [x] `internal/membership`
+  - [x] `internal/gossip/transport`
+  - [x] `internal/gossip/protocol`
   - [ ] `internal/gossip/anti_entropy`
-  - [ ] `internal/aggregation/common`
-  - [ ] `internal/aggregation/sum`
-  - [ ] `internal/aggregation/topk`
+  - [x] `internal/aggregation/common`
+  - [x] `internal/aggregation/sum`
+  - [x] `internal/aggregation/topk`
+  - [x] `internal/aggregation/pipeline`
   - [ ] `internal/storage/wal`
   - [ ] `internal/storage/snapshot`
-  - [ ] `internal/api`
-  - [ ] `internal/observability`
+  - [x] `internal/api`
+  - [x] `internal/observability`
   - [ ] `internal/simulation`
 - [ ] Create test directories:
   - [ ] `test/integration`
   - [ ] `test/fault`
   - [ ] `test/e2e`
 - [ ] Create deployment directories/files:
-  - [ ] `deployments/Dockerfile`
-  - [ ] `deployments/docker-compose.local.yml`
+  - [x] `docker-compose.yml`
+  - [x] `deployments/Dockerfile`
+  - [x] `deployments/docker-compose.local.yml`
   - [ ] `deployments/docker-compose.yml`
   - [ ] `deployments/docker-compose.fault.yml`
   - [ ] `deployments/ec2/bootstrap.sh`
   - [ ] `deployments/ec2/runbook.md`
 - [ ] Create support files:
-  - [ ] `.env`
-  - [ ] `.env.example`
+  - [x] `.env`
+  - [x] `.env.example`
   - [ ] `scripts/loadgen.sh`
   - [ ] `scripts/kill_random_node.sh`
   - [ ] `scripts/check_convergence.sh`
+  - [x] `configs/node.dev.json`
   - [ ] `configs/node.dev.yaml`
   - [ ] `configs/node.prod.yaml`
 

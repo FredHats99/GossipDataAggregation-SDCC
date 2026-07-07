@@ -65,6 +65,15 @@ func TestTable_MissedUnknownEndpointDoesNotCreatePlaceholder(t *testing.T) {
 	}
 }
 
+func TestSameEndpointTreatsOnlyMatchingLocalPortAsSelf(t *testing.T) {
+	if !sameEndpoint("127.0.0.1:7000", "0.0.0.0:7000") {
+		t.Fatal("expected matching local endpoints to be equal")
+	}
+	if sameEndpoint("127.0.0.1:7001", "0.0.0.0:7000") {
+		t.Fatal("expected different local ports to be different endpoints")
+	}
+}
+
 func findMember(members []Member, nodeID string) Member {
 	for _, m := range members {
 		if m.NodeID == nodeID {

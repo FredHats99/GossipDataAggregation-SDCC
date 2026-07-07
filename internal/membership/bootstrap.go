@@ -2,19 +2,19 @@ package membership
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	"gossipdataaggregation-sdcc/internal/gossip/transport"
 )
 
 const (
-	pingPrefix = "PING "
-	ackPrefix  = "ACK "
-
 	joinAttempts      = 4
 	suspectAfterMiss  = 3
 	deadAfterMiss     = 6
@@ -30,6 +30,19 @@ type Bootstrapper struct {
 	gossipInterval time.Duration
 	logger         *slog.Logger
 	table          *Table
+	codec          *transport.JSONCodec
+	seq            atomic.Uint64
+}
+
+type pingPayload struct {
+	NodeID      string `json:"node_id"`
+	Incarnation uint64 `json:"incarnation"`
+}
+
+type ackPayload struct {
+	AckedSeq uint64 `json:"acked_seq"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 func NewBootstrapper(
@@ -48,49 +61,71 @@ func NewBootstrapper(
 		gossipInterval: gossipInterval,
 		logger:         logger,
 		table:          NewTable(nodeID, bindAddr),
+		codec:          transport.NewJSONCodec(),
 	}
 }
 
 func (b *Bootstrapper) StartJoinListener(ctx context.Context) error {
-	conn, err := net.ListenPacket("udp", b.bindAddr)
+	udp, err := transport.NewUDPFrameTransport(b.bindAddr, transport.DefaultMaxFrameSize)
 	if err != nil {
 		return fmt.Errorf("start UDP join listener: %w", err)
 	}
 
 	go func() {
 		<-ctx.Done()
-		_ = conn.Close()
+		_ = udp.Close()
 	}()
 
 	go func() {
-		buf := make([]byte, 1024)
 		for {
-			n, remoteAddr, err := conn.ReadFrom(buf)
+			remotePeer, frame, err := udp.NextFrame(ctx)
 			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
+				if ctx.Err() != nil {
 					return
 				}
 				b.logger.Warn("membership join listener read failed", "error", err.Error())
 				continue
 			}
 
-			msg := strings.TrimSpace(string(buf[:n]))
-			if !strings.HasPrefix(msg, pingPrefix) {
+			message, err := b.codec.Decode(frame)
+			if err != nil {
+				b.logger.Warn("membership join listener rejected frame", "peer", remotePeer, "error", err.Error())
 				continue
 			}
-			peerNodeID := strings.TrimSpace(strings.TrimPrefix(msg, pingPrefix))
+			if message.Type != "Ping" {
+				b.logger.Debug("membership join listener ignored non-ping message", "peer", remotePeer, "msg_type", message.Type)
+				continue
+			}
+			peerNodeID, err := decodePingNodeID(message)
+			if err != nil {
+				b.logger.Warn("membership ping payload rejected", "peer", remotePeer, "error", err.Error())
+				continue
+			}
+
 			b.table.MarkAlive(peerNodeID, "")
-			ack := []byte(ackPrefix + b.nodeID)
-			if _, err := conn.WriteTo(ack, remoteAddr); err != nil {
+			ack, err := b.newEnvelope("Ack", ackPayload{AckedSeq: message.Seq, Status: "accepted"})
+			if err != nil {
+				b.logger.Warn("membership ACK encode failed", "peer", remotePeer, "peer_node_id", peerNodeID, "error", err.Error())
+				continue
+			}
+			ackFrame, err := b.codec.Encode(ack)
+			if err != nil {
+				b.logger.Warn("membership ACK encode failed", "peer", remotePeer, "peer_node_id", peerNodeID, "error", err.Error())
+				continue
+			}
+			sendCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			err = udp.SendFrame(sendCtx, remotePeer, ackFrame)
+			cancel()
+			if err != nil {
 				b.logger.Warn(
 					"membership join ACK send failed",
-					"peer", remoteAddr.String(),
+					"peer", remotePeer,
 					"peer_node_id", peerNodeID,
 					"error", err.Error(),
 				)
 				continue
 			}
-			b.logger.Debug("membership join ACK sent", "peer", remoteAddr.String(), "peer_node_id", peerNodeID)
+			b.logger.Debug("membership join ACK sent", "peer", remotePeer, "peer_node_id", peerNodeID)
 		}
 	}()
 
@@ -131,8 +166,40 @@ func (b *Bootstrapper) isSelfSeed(seed string) bool {
 	if err != nil {
 		return false
 	}
+	if strings.TrimSpace(host) == b.nodeID {
+		return true
+	}
+	if sameEndpoint(seed, b.bindAddr) {
+		return true
+	}
+	return false
+}
+
+func sameEndpoint(left, right string) bool {
+	leftHost, leftPort, err := net.SplitHostPort(left)
+	if err != nil {
+		return false
+	}
+	rightHost, rightPort, err := net.SplitHostPort(right)
+	if err != nil {
+		return false
+	}
+	if leftPort != rightPort {
+		return false
+	}
+	leftHost = normalizeLocalHost(leftHost)
+	rightHost = normalizeLocalHost(rightHost)
+	return leftHost == rightHost
+}
+
+func normalizeLocalHost(host string) string {
 	host = strings.TrimSpace(host)
-	return host == b.nodeID || host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0"
+	switch host {
+	case "", "localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]":
+		return "localhost"
+	default:
+		return host
+	}
 }
 
 func (b *Bootstrapper) StartGossipLoop(ctx context.Context) {
@@ -235,37 +302,95 @@ func (b *Bootstrapper) joinSeedWithRetry(ctx context.Context, seed string) (stri
 }
 
 func (b *Bootstrapper) joinSeed(seed string) (string, error) {
-	conn, err := net.DialTimeout("udp", seed, 2*time.Second)
+	udp, err := transport.NewUDPFrameTransport(":0", transport.DefaultMaxFrameSize)
 	if err != nil {
-		return "", fmt.Errorf("dial seed: %w", err)
+		return "", fmt.Errorf("start UDP join client: %w", err)
 	}
-	defer conn.Close()
+	defer udp.Close()
 
-	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		return "", fmt.Errorf("set deadline: %w", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ping, err := b.newEnvelope("Ping", pingPayload{NodeID: b.nodeID, Incarnation: 1})
+	if err != nil {
+		return "", fmt.Errorf("build ping: %w", err)
 	}
-
-	ping := []byte(pingPrefix + b.nodeID)
-	if _, err := conn.Write(ping); err != nil {
+	frame, err := b.codec.Encode(ping)
+	if err != nil {
+		return "", fmt.Errorf("encode ping: %w", err)
+	}
+	if err := udp.SendFrame(ctx, seed, frame); err != nil {
 		return "", fmt.Errorf("send ping: %w", err)
 	}
 
-	buf := make([]byte, 256)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return "", fmt.Errorf("read ack: %w", err)
+	for {
+		_, ackFrame, err := udp.NextFrame(ctx)
+		if err != nil {
+			return "", fmt.Errorf("read ack: %w", err)
+		}
+		ack, err := b.codec.Decode(ackFrame)
+		if err != nil {
+			return "", fmt.Errorf("decode ack: %w", err)
+		}
+		if ack.Type != "Ack" {
+			continue
+		}
+		if err := validateAcceptedAck(ack, ping.Seq); err != nil {
+			return "", err
+		}
+		return ack.From, nil
 	}
-	msg := strings.TrimSpace(string(buf[:n]))
-	if !strings.HasPrefix(msg, ackPrefix) {
-		return "", fmt.Errorf("unexpected response %q", msg)
-	}
-	peerNodeID := strings.TrimSpace(strings.TrimPrefix(msg, ackPrefix))
-	if peerNodeID == "" {
-		return "", fmt.Errorf("empty peer node_id in ACK")
-	}
-	return peerNodeID, nil
 }
 
 func (b *Bootstrapper) MembersSnapshot() []Member {
 	return b.table.Snapshot()
+}
+
+func (b *Bootstrapper) newEnvelope(messageType string, payload any) (transport.Envelope, error) {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return transport.Envelope{}, err
+	}
+	return transport.Envelope{
+		Type:      messageType,
+		Seq:       b.seq.Add(1),
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		From:      b.nodeID,
+		Version:   "v1",
+		Payload:   payloadBytes,
+	}, nil
+}
+
+func decodePingNodeID(message transport.Envelope) (string, error) {
+	var payload pingPayload
+	if err := json.Unmarshal(message.Payload, &payload); err != nil {
+		return "", fmt.Errorf("decode ping payload: %w", err)
+	}
+	if strings.TrimSpace(payload.NodeID) == "" {
+		return "", fmt.Errorf("empty ping node_id")
+	}
+	if payload.NodeID != message.From {
+		return "", fmt.Errorf("ping node_id %q does not match envelope from %q", payload.NodeID, message.From)
+	}
+	return payload.NodeID, nil
+}
+
+func validateAcceptedAck(message transport.Envelope, expectedSeq uint64) error {
+	var payload ackPayload
+	if err := json.Unmarshal(message.Payload, &payload); err != nil {
+		return fmt.Errorf("decode ack payload: %w", err)
+	}
+	if payload.AckedSeq != expectedSeq {
+		return fmt.Errorf("unexpected ACK sequence %d for ping sequence %d", payload.AckedSeq, expectedSeq)
+	}
+	if payload.Status != "accepted" {
+		if payload.Reason != "" {
+			return fmt.Errorf("ACK rejected: %s", payload.Reason)
+		}
+		return fmt.Errorf("ACK rejected")
+	}
+	if strings.TrimSpace(message.From) == "" {
+		return fmt.Errorf("empty peer node_id in ACK")
+	}
+	return nil
 }
