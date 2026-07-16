@@ -18,12 +18,15 @@ Implemented:
 - UDP envelope dispatch from the membership listener to the delta runtime
 - forwarding received deltas when they advance local aggregate state
 - HTTP endpoints for update/read smoke workflows
+- periodic digest exchange for anti-entropy repair
+- bounded delta history and sequence-range repair
+- snapshot request/response fallback for missed aggregate state
 - duplicate-safe merge behavior inherited from the aggregators
 - simulated multi-node convergence test
 
 Not implemented yet:
 
-- anti-entropy digest/snapshot repair
+- automated Docker fault-injection profile
 
 ## Package Layout
 
@@ -46,6 +49,15 @@ Not implemented yet:
   - sends deltas to sampled peers through `transport.Sender`
   - applies received `StateDelta` envelopes
   - forwards advancing received deltas to peers
+  - exchanges `StateDigest` messages periodically
+  - serves and applies `DeltaRangeReq`/`DeltaRangeResp` repair messages
+  - serves and applies snapshot repair messages
+
+- `internal/gossip/anti_entropy`
+  - compares local and peer digests
+  - stores bounded per-origin delta histories
+  - computes missing contiguous sequence ranges
+  - decides which aggregate snapshots must be requested
 
 - `internal/api`
   - exposes `POST /update`
@@ -64,6 +76,8 @@ For `SUM`:
 4. emit `StateDelta(SUM)` with:
    - `aggregate_type = SUM`
    - `delta_version = local SUM state version`
+   - `origin_node_id = local node ID`
+   - `delta_sequence = next local delta sequence`
    - `delta.node_id = local node_id`
    - `delta.value = cumulative contribution for local node`
 
@@ -75,6 +89,8 @@ For `TOP-K`:
 4. emit `StateDelta(TOPK)` with:
    - `aggregate_type = TOPK`
    - `delta_version = local TOP-K state version`
+   - `origin_node_id = local node ID`
+   - `delta_sequence = next local delta sequence`
    - candidate tuple fields in `delta`
 
 The local manager owns `origin_node_id` assignment for local updates. This
@@ -178,8 +194,18 @@ The Docker Compose runtime path was also verified locally with three nodes:
 
 ## Step 7/Runtime Notes
 
-The next runtime wiring should:
+Step 7 runtime wiring:
+
+- `StateDigest` messages compare aggregate versions and checksums
+- digests advertise per-origin contiguous delta sequence watermarks
+- `DeltaRangeReq`/`DeltaRangeResp` repair gaps from bounded in-memory history
+- `SnapshotReq` requests only aggregates that appear behind or divergent
+- `SnapshotResp` carries versioned serialized aggregate states
+- missing/evicted delta ranges automatically fall back to snapshots
+- snapshots are merged through CRDT rules, so local unseen updates are preserved
+
+Remaining runtime hardening:
 
 - decide whether to replace the direct listener callback with a bounded inbound queue
 - decide how much of `MessageGuard` should be incarnation-aware before crash/restart work
-- add anti-entropy digest and snapshot repair for dropped or missed deltas
+- add real packet-loss automation around the Docker deployment

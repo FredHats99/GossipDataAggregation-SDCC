@@ -24,6 +24,9 @@ func TestManagerLocalUpdateEmitsDeltas(t *testing.T) {
 	if sumDelta.AggregateType != common.AggregateSUM {
 		t.Fatalf("expected SUM delta, got %s", sumDelta.AggregateType)
 	}
+	if sumDelta.OriginNodeID != "node1" || sumDelta.DeltaSequence != 1 {
+		t.Fatalf("unexpected SUM delta sequence metadata: %+v", sumDelta)
+	}
 
 	topkDelta, advanced, err := manager.ApplyLocalUpdate(LocalUpdate{
 		AggregateType: common.AggregateTOPK,
@@ -38,6 +41,9 @@ func TestManagerLocalUpdateEmitsDeltas(t *testing.T) {
 	}
 	if topkDelta.AggregateType != common.AggregateTOPK {
 		t.Fatalf("expected TOPK delta, got %s", topkDelta.AggregateType)
+	}
+	if topkDelta.OriginNodeID != "node1" || topkDelta.DeltaSequence != 2 {
+		t.Fatalf("unexpected TOPK delta sequence metadata: %+v", topkDelta)
 	}
 
 	if got := manager.DrainOutbound(); len(got) != 2 {
@@ -183,6 +189,44 @@ func TestManagersConvergeWithBroadcastDeltas(t *testing.T) {
 	}
 	if got := itemIDs(first.TOPK); !reflect.DeepEqual(got, []string{"item-b", "item-c", "item-a"}) {
 		t.Fatalf("unexpected TOPK order: %v", got)
+	}
+}
+
+func TestManagerSnapshotMergeHealsMissingState(t *testing.T) {
+	source := newManager(t, "node1", 3, 8)
+	target := newManager(t, "node2", 3, 8)
+
+	if _, advanced, err := source.ApplyLocalUpdate(LocalUpdate{
+		AggregateType: common.AggregateSUM,
+		Value:         uint64(11),
+	}); err != nil || !advanced {
+		t.Fatalf("apply source SUM update advanced=%v err=%v", advanced, err)
+	}
+	if _, advanced, err := target.ApplyLocalUpdate(LocalUpdate{
+		AggregateType: common.AggregateSUM,
+		Value:         uint64(7),
+	}); err != nil || !advanced {
+		t.Fatalf("apply target SUM update advanced=%v err=%v", advanced, err)
+	}
+
+	snapshot, err := source.Snapshot([]string{common.AggregateSUM})
+	if err != nil {
+		t.Fatalf("build snapshot: %v", err)
+	}
+	advanced, err := target.ApplySnapshot(snapshot)
+	if err != nil {
+		t.Fatalf("apply snapshot: %v", err)
+	}
+	if !advanced {
+		t.Fatal("expected snapshot to advance target")
+	}
+
+	estimates, err := target.Estimates(3)
+	if err != nil {
+		t.Fatalf("target estimates: %v", err)
+	}
+	if estimates.SUM != 18 {
+		t.Fatalf("expected merged SUM 18, got %d", estimates.SUM)
 	}
 }
 

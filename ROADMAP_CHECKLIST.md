@@ -22,7 +22,7 @@ This checklist is designed to track implementation progress for a gossip-based d
 - [x] Write protocol specification document (see `PROTOCOL_SPEC.md`):
   - [x] Node identity format (`node_id`)
   - [x] Message envelope fields (`type`, `seq`, `timestamp`, `checksum`, `from`)
-  - [x] Message types (`Ping`, `StateDigest`, `StateDelta`, `Ack`, `SnapshotReq`, `SnapshotResp`)
+  - [x] Message types (`Ping`, `StateDigest`, `StateDelta`, `DeltaRangeReq`, `DeltaRangeResp`, `Ack`, `SnapshotReq`, `SnapshotResp`)
 - [ ] Define merge invariants for all aggregate states:
   - [x] Associative merge
   - [x] Commutative merge
@@ -132,16 +132,18 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 7) Anti-Entropy and State Sync
 
-- [ ] Implement periodic digest exchange:
-  - [ ] Digest content (state version summary)
-  - [ ] Pull missing deltas when behind
-- [ ] Implement snapshot sync fallback:
-  - [ ] Snapshot request/response messages
-  - [ ] Safe apply on receiving full snapshot
-- [ ] Add healing tests:
-  - [ ] Packet loss scenario
-  - [ ] Temporary network partition scenario
-  - [ ] Post-healing convergence checks
+- [x] Implement periodic digest exchange:
+  - [x] Digest content (state version summary)
+  - [x] Digest content includes state checksums to detect same-version divergence
+  - [x] Pull missing aggregate state when behind via snapshot fallback
+  - [x] Pull missing deltas by sequence range from a bounded in-memory delta history
+- [x] Implement snapshot sync fallback:
+  - [x] Snapshot request/response messages
+  - [x] Safe apply on receiving full snapshot
+- [x] Add healing tests:
+  - [x] Dropped-delta healing scenario
+  - [x] Temporary network partition scenario
+  - [x] Post-healing convergence checks
 
 ## 8) Persistence and Crash Recovery
 
@@ -265,7 +267,7 @@ This checklist is designed to track implementation progress for a gossip-based d
   - [x] `internal/membership`
   - [x] `internal/gossip/transport`
   - [x] `internal/gossip/protocol`
-  - [ ] `internal/gossip/anti_entropy`
+  - [x] `internal/gossip/anti_entropy` behavior integrated in `internal/gossip/delta`
   - [x] `internal/aggregation/common`
   - [x] `internal/aggregation/sum`
   - [x] `internal/aggregation/topk`

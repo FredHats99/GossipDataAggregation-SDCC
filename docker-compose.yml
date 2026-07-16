@@ -18,6 +18,7 @@ services:
       FANOUT: ${FANOUT:-2}
       TOPK_MAX: ${TOPK_MAX:-10}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE:-128}
+      DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "${API_PORT_BASE:-18080}:8080"
@@ -43,6 +44,7 @@ services:
       FANOUT: ${FANOUT:-2}
       TOPK_MAX: ${TOPK_MAX:-10}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE:-128}
+      DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "18081:8080"
@@ -68,6 +70,7 @@ services:
       FANOUT: ${FANOUT:-2}
       TOPK_MAX: ${TOPK_MAX:-10}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE:-128}
+      DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "18082:8080"

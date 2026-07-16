@@ -4,9 +4,11 @@
   "bind_addr": "0.0.0.0:7000",
   "seed_nodes": "127.0.0.1:7000",
   "gossip_interval_ms": 1000,
+  "anti_entropy_interval_ms": 15000,
   "fanout": 2,
   "topk_max": 10,
   "outbound_queue_size": 128,
+  "delta_history_size": 1024,
   "log_level": "info",
   "shutdown_timeout_seconds": 10
 }

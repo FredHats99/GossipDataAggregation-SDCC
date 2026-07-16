@@ -10,12 +10,14 @@ import (
 var (
 	nodeIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
 	allowedTypes  = map[string]struct{}{
-		"Ping":         {},
-		"StateDigest":  {},
-		"StateDelta":   {},
-		"Ack":          {},
-		"SnapshotReq":  {},
-		"SnapshotResp": {},
+		"Ping":           {},
+		"StateDigest":    {},
+		"StateDelta":     {},
+		"DeltaRangeReq":  {},
+		"DeltaRangeResp": {},
+		"Ack":            {},
+		"SnapshotReq":    {},
+		"SnapshotResp":   {},
 	}
 )
 

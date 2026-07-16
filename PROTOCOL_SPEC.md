@@ -73,7 +73,17 @@ Payload:
 - `aggregates` (object):
   - `sum_version` (uint64)
   - `topk_version` (uint64)
+  - `sum_checksum` (string, optional SHA-256 of serialized SUM state)
+  - `topk_checksum` (string, optional SHA-256 of serialized TOP-K state)
 - `membership_version` (uint64)
+- `delta_sequences` (object, optional): highest contiguous `delta_sequence` by
+  origin node
+
+Implementation note:
+
+- the Go implementation encodes this as explicit `sum` and `topk` digest
+  objects with `version` and `checksum` fields
+- checksums are used to detect same-version divergent aggregate content
 
 ## 3.3 `StateDelta`
 
@@ -85,6 +95,8 @@ Payload:
 
 - `aggregate_type` (`SUM|TOPK`)
 - `delta_version` (uint64)
+- `origin_node_id` (string)
+- `delta_sequence` (uint64, monotonic for the origin node's delta stream)
 - `delta` (object, aggregate-specific)
 
 SUM delta shape:
@@ -99,7 +111,37 @@ TOP-K delta shape:
 - `event_ts` (RFC3339 UTC string)
 - `origin_node_id` (string)
 
-## 3.4 `Ack`
+## 3.4 `DeltaRangeReq`
+
+Purpose:
+
+- request missing deltas from a peer's bounded history
+
+Payload:
+
+- `ranges` (array), one range per origin:
+  - `origin_node_id` (string)
+  - `from_sequence` (uint64, inclusive)
+  - `to_sequence` (uint64, inclusive)
+- `known_versions` (requester's `StateDigest`)
+
+Each range MUST contain at most 256 deltas. Larger gaps are repaired over
+successive digest rounds.
+
+## 3.5 `DeltaRangeResp`
+
+Purpose:
+
+- return a complete requested sequence range
+
+Payload:
+
+- `deltas` (non-empty array of sequenced `StateDelta` payloads)
+
+If any requested sequence is unavailable, the responder MUST send a
+`SnapshotResp` fallback instead of a partial range response.
+
+## 3.6 `Ack`
 
 Purpose:
 
@@ -111,7 +153,7 @@ Payload:
 - `status` (`accepted|rejected`)
 - `reason` (string, optional)
 
-## 3.5 `SnapshotReq`
+## 3.7 `SnapshotReq`
 
 Purpose:
 
@@ -122,7 +164,7 @@ Payload:
 - `want_aggregate_types` (array of `SUM|TOPK`)
 - `known_versions` (object with local versions)
 
-## 3.6 `SnapshotResp`
+## 3.8 `SnapshotResp`
 
 Purpose:
 
@@ -133,7 +175,16 @@ Payload:
 - `snapshot_version` (uint64)
 - `sum_state` (object, optional)
 - `topk_state` (object, optional)
+- `delta_sequences` (object, optional): per-origin watermarks covered by the snapshot
 - `created_at` (RFC3339 UTC string)
+
+Snapshot apply rule:
+
+- receivers MUST merge snapshot state into local state using the aggregate CRDT
+  merge rules
+- receivers MUST NOT blindly replace local state with a peer snapshot
+- receivers SHOULD advance local delta watermarks to the values covered by a
+  successfully merged snapshot
 
 ## 4) Validation Rules
 
@@ -340,7 +391,8 @@ This protocol uses two distinct versioning domains:
 - transport sequence/versioning for message handling
 - aggregate state versioning for anti-entropy and snapshot freshness
 
-`seq` and `delta_version` MUST NOT be used to resolve aggregate conflicts.
+`seq`, `delta_sequence`, and `delta_version` MUST NOT be used to resolve
+aggregate conflicts.
 Conflict resolution is defined only by merge rules in section 6.
 
 ## 8.1 Transport-Level Versioning
@@ -382,7 +434,10 @@ Clock advancement:
 Propagation rules:
 
 - `StateDelta.delta_version` MUST be the sender aggregate Lamport version after apply
+- `StateDelta.delta_sequence` MUST increase monotonically for each
+  `origin_node_id` and is independent from envelope `seq`
 - `StateDigest.aggregates.{sum_version,topk_version}` MUST expose local aggregate Lamport versions
+- `StateDigest.delta_sequences` MUST expose only contiguous per-origin delta watermarks
 - `SnapshotResp.snapshot_version` MUST be `max(sum_state_version, topk_state_version)` for included states
 - serialized aggregate payload MUST include `state_version` (section 7.4)
 

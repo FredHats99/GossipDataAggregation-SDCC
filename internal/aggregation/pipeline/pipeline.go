@@ -2,10 +2,12 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"gossipdataaggregation-sdcc/internal/aggregation/common"
 	sumagg "gossipdataaggregation-sdcc/internal/aggregation/sum"
@@ -44,6 +46,7 @@ type Manager struct {
 	queueMu  sync.Mutex
 	closed   bool
 	dropped  atomic.Uint64
+	deltaSeq atomic.Uint64
 }
 
 func New(config Config) (*Manager, error) {
@@ -86,6 +89,8 @@ func (m *Manager) ApplyLocalUpdate(update LocalUpdate) (protocol.StateDelta, boo
 		if err != nil {
 			return protocol.StateDelta{}, false, err
 		}
+		delta.OriginNodeID = m.nodeID
+		delta.DeltaSequence = m.deltaSeq.Add(1)
 		m.enqueue(delta)
 		return delta, true, nil
 	case common.AggregateTOPK:
@@ -108,6 +113,8 @@ func (m *Manager) ApplyLocalUpdate(update LocalUpdate) (protocol.StateDelta, boo
 		if err != nil {
 			return protocol.StateDelta{}, false, err
 		}
+		delta.OriginNodeID = m.nodeID
+		delta.DeltaSequence = m.deltaSeq.Add(1)
 		m.enqueue(delta)
 		return delta, true, nil
 	default:
@@ -143,6 +150,86 @@ func (m *Manager) ApplyReceivedDelta(delta protocol.StateDelta) (bool, error) {
 	default:
 		return false, fmt.Errorf("%w: %s", ErrInvalidUpdate, delta.AggregateType)
 	}
+}
+
+func (m *Manager) Digest() (protocol.StateDigest, error) {
+	sumState := m.sum.State()
+	sumRaw, err := m.sum.Serialize()
+	if err != nil {
+		return protocol.StateDigest{}, err
+	}
+	topkState := m.topk.State()
+	topkRaw, err := m.topk.Serialize()
+	if err != nil {
+		return protocol.StateDigest{}, err
+	}
+	return protocol.StateDigest{
+		SUM: protocol.AggregateDigest{
+			Version:  sumState.Version,
+			Checksum: protocol.StateChecksum(sumRaw),
+		},
+		TOPK: protocol.AggregateDigest{
+			Version:  topkState.Version,
+			Checksum: protocol.StateChecksum(topkRaw),
+		},
+	}, nil
+}
+
+func (m *Manager) Snapshot(want []string) (protocol.SnapshotResp, error) {
+	resp := protocol.SnapshotResp{
+		CreatedAt: time.Now().UTC(),
+	}
+	for _, aggregateType := range want {
+		switch aggregateType {
+		case common.AggregateSUM:
+			raw, err := m.sum.Serialize()
+			if err != nil {
+				return protocol.SnapshotResp{}, err
+			}
+			resp.SUMState = json.RawMessage(raw)
+			resp.SnapshotVersion = maxUint64(resp.SnapshotVersion, m.sum.State().Version)
+		case common.AggregateTOPK:
+			raw, err := m.topk.Serialize()
+			if err != nil {
+				return protocol.SnapshotResp{}, err
+			}
+			resp.TOPKState = json.RawMessage(raw)
+			resp.SnapshotVersion = maxUint64(resp.SnapshotVersion, m.topk.State().Version)
+		default:
+			return protocol.SnapshotResp{}, fmt.Errorf("%w: %s", ErrInvalidUpdate, aggregateType)
+		}
+	}
+	if len(resp.SUMState) == 0 && len(resp.TOPKState) == 0 {
+		return protocol.SnapshotResp{}, ErrInvalidUpdate
+	}
+	return resp, nil
+}
+
+func (m *Manager) ApplySnapshot(snapshot protocol.SnapshotResp) (bool, error) {
+	advanced := false
+	if len(snapshot.SUMState) > 0 {
+		state, err := sumagg.StateFromSerialized(snapshot.SUMState)
+		if err != nil {
+			return false, err
+		}
+		sumAdvanced, err := m.sum.Merge(state)
+		if err != nil {
+			return false, err
+		}
+		advanced = advanced || sumAdvanced
+	}
+	if len(snapshot.TOPKState) > 0 {
+		state, err := topkagg.StateFromSerialized(snapshot.TOPKState)
+		if err != nil {
+			return false, err
+		}
+		topkAdvanced, err := m.topk.Merge(state)
+		if err != nil {
+			return false, err
+		}
+		advanced = advanced || topkAdvanced
+	}
+	return advanced, nil
 }
 
 func (m *Manager) NextOutbound(ctx context.Context) (protocol.StateDelta, error) {
@@ -212,4 +299,11 @@ func (m *Manager) enqueue(delta protocol.StateDelta) {
 	default:
 		m.dropped.Add(1)
 	}
+}
+
+func maxUint64(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }

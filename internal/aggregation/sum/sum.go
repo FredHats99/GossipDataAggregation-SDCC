@@ -66,6 +66,25 @@ func FromState(nodeID string, state State) (*GCounter, error) {
 	return g, nil
 }
 
+func StateFromSerialized(raw []byte) (State, error) {
+	var p payload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return State{}, err
+	}
+	if p.AggregateType != common.AggregateSUM ||
+		p.ProtocolVersion != common.ProtocolVersion ||
+		p.SchemaVersion != schemaVersion {
+		return State{}, ErrUnsupportedVersion
+	}
+	if err := validateContrib(p.StatePayload); err != nil {
+		return State{}, err
+	}
+	return State{
+		Contrib: cloneContrib(p.StatePayload),
+		Version: p.StateVersion,
+	}, nil
+}
+
 func (g *GCounter) Update(value any) (bool, error) {
 	increment, err := incrementFrom(value)
 	if err != nil {

@@ -254,3 +254,56 @@ Recommended next decisions before Step 7:
 - validate Docker Compose multi-node convergence for `SUM` and `TOPK`
 - decide whether the delta runtime inbound path should use a bounded queue
   instead of direct asynchronous callback dispatch
+
+## Step 7 Anti-Entropy and Snapshot Sync
+
+Step 7 adds repair for missed aggregate gossip messages.
+
+Implemented:
+
+- `protocol.StateDigest`
+  - exposes `SUM` and `TOPK` aggregate versions
+  - includes SHA-256 checksums of serialized aggregate state
+  - keeps `membership_version` for future membership digest integration
+- `protocol.StateDelta`
+  - carries `origin_node_id` and a dedicated per-origin `delta_sequence`
+- `protocol.DeltaRangeReq` / `protocol.DeltaRangeResp`
+  - request and return missing contiguous delta sequence ranges
+  - cap each requested origin range at 256 deltas
+- `protocol.SnapshotReq`
+  - requests selected aggregate types
+  - carries the requester's known versions/digest
+- `protocol.SnapshotResp`
+  - carries selected versioned serialized aggregate snapshots
+  - includes `snapshot_version`, `created_at`, and covered delta watermarks
+- pipeline digest/snapshot APIs
+  - `Manager.Digest`
+  - `Manager.Snapshot`
+  - `Manager.ApplySnapshot`
+- safe snapshot application
+  - decoded snapshot fragments are merged into local CRDT state
+  - local state is not blindly replaced by peer snapshots
+- runtime anti-entropy
+  - periodic digest broadcast
+  - delta-range request when peer has a higher per-origin watermark
+  - bounded in-memory history, configured by `DELTA_HISTORY_SIZE`
+  - snapshot fallback when a requested range is unavailable
+  - snapshot request when same-version checksum differs
+  - snapshot response handling
+  - fresh digest broadcast after snapshot advancement
+
+Important design choice:
+
+- the delta history is intentionally in memory and bounded per origin
+- history loss or eviction is repaired by the existing CRDT snapshot fallback
+- Step 8 can persist the same sequenced deltas in a WAL without changing the
+  range-repair protocol
+
+Tests added:
+
+- snapshot merge preserves local unseen `SUM` contribution
+- runtime requests snapshots for divergent digests
+- runtime applies snapshot responses
+- runtime anti-entropy heals a dropped-delta scenario
+- range eviction falls back to snapshot repair
+- a temporary network partition heals through delta-range exchange

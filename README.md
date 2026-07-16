@@ -13,6 +13,7 @@ The base Go module and clean-architecture bootstrap are available with:
 Implementation status and rationale are tracked in `IMPLEMENTATION_NOTES.md`.
 Aggregation design choices are tracked in `AGGREGATION_DESIGN.md`.
 Gossip aggregation pipeline choices are tracked in `GOSSIP_AGGREGATION_PIPELINE.md`.
+Anti-entropy and snapshot sync choices are tracked in `STEP7_ANTI_ENTROPY_STATE_SYNC.md`.
 
 ### Local run
 
@@ -105,6 +106,18 @@ Step 6 now wires aggregation deltas into runtime gossip flow:
 The local Docker convergence run has been verified with three nodes for
 membership, `SUM`, and `TOPK` propagation.
 
+### Anti-entropy and state sync
+
+Step 7 adds periodic `StateDigest` exchange, delta-range repair, and snapshot fallback:
+
+- digest messages include aggregate versions, state checksums, and per-origin
+  delta sequence watermarks
+- behind nodes request missing delta ranges from a bounded in-memory history
+- evicted ranges and same-version divergence fall back to selected snapshots
+- snapshots are merged through the existing CRDT rules, not applied as blind
+  replacement
+- temporary partitions heal after connectivity returns
+
 ## Local Docker Setup (Functional Testing)
 
 This project includes a local Docker Compose setup to test gossip functionality with 3 nodes.
@@ -146,7 +159,7 @@ Edit `.env` to modify:
 
 - Gossip timing: `GOSSIP_INTERVAL_MS`, `ANTI_ENTROPY_INTERVAL_MS`
 - Fanout: `FANOUT`
-- Aggregation runtime: `TOPK_MAX`, `OUTBOUND_QUEUE_SIZE`
+- Aggregation runtime: `TOPK_MAX`, `OUTBOUND_QUEUE_SIZE`, `DELTA_HISTORY_SIZE`
 - Seed topology: `SEED_NODES`
 - Logging: `LOG_LEVEL`
 - Exposed ports: `API_PORT_BASE`, `GOSSIP_PORT` (node2/node3 host ports are set in compose)

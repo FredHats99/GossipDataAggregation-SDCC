@@ -18,9 +18,11 @@ const (
 	envBindAddr        = "BIND_ADDR"
 	envSeedNodes       = "SEED_NODES"
 	envGossipInterval  = "GOSSIP_INTERVAL_MS"
+	envAntiEntropy     = "ANTI_ENTROPY_INTERVAL_MS"
 	envFanout          = "FANOUT"
 	envTopKMax         = "TOPK_MAX"
 	envOutboundQueue   = "OUTBOUND_QUEUE_SIZE"
+	envDeltaHistory    = "DELTA_HISTORY_SIZE"
 	envLogLevel        = "LOG_LEVEL"
 	envShutdownTimeout = "SHUTDOWN_TIMEOUT_SECONDS"
 )
@@ -31,9 +33,11 @@ type Config struct {
 	BindAddr        string `json:"bind_addr"`
 	SeedNodes       string `json:"seed_nodes"`
 	GossipInterval  int    `json:"gossip_interval_ms"`
+	AntiEntropy     int    `json:"anti_entropy_interval_ms"`
 	Fanout          int    `json:"fanout"`
 	TopKMax         int    `json:"topk_max"`
 	OutboundQueue   int    `json:"outbound_queue_size"`
+	DeltaHistory    int    `json:"delta_history_size"`
 	LogLevel        string `json:"log_level"`
 	ShutdownTimeout int    `json:"shutdown_timeout_seconds"`
 }
@@ -78,6 +82,9 @@ func (c Config) Validate() error {
 	if c.GossipInterval <= 0 {
 		return errors.New("gossip_interval_ms must be greater than zero")
 	}
+	if c.AntiEntropy <= 0 {
+		return errors.New("anti_entropy_interval_ms must be greater than zero")
+	}
 	if c.Fanout <= 0 {
 		return errors.New("fanout must be greater than zero")
 	}
@@ -86,6 +93,9 @@ func (c Config) Validate() error {
 	}
 	if c.OutboundQueue <= 0 {
 		return errors.New("outbound_queue_size must be greater than zero")
+	}
+	if c.DeltaHistory <= 0 {
+		return errors.New("delta_history_size must be greater than zero")
 	}
 	if c.ShutdownTimeout <= 0 {
 		return errors.New("shutdown_timeout_seconds must be greater than zero")
@@ -113,9 +123,11 @@ func defaultConfig() Config {
 		BindAddr:        ":7000",
 		SeedNodes:       "",
 		GossipInterval:  1000,
+		AntiEntropy:     15000,
 		Fanout:          2,
 		TopKMax:         10,
 		OutboundQueue:   128,
+		DeltaHistory:    1024,
 		LogLevel:        "info",
 		ShutdownTimeout: 10,
 	}
@@ -149,6 +161,9 @@ func merge(base, override Config) Config {
 	if override.GossipInterval > 0 {
 		base.GossipInterval = override.GossipInterval
 	}
+	if override.AntiEntropy > 0 {
+		base.AntiEntropy = override.AntiEntropy
+	}
 	if override.Fanout > 0 {
 		base.Fanout = override.Fanout
 	}
@@ -157,6 +172,9 @@ func merge(base, override Config) Config {
 	}
 	if override.OutboundQueue > 0 {
 		base.OutboundQueue = override.OutboundQueue
+	}
+	if override.DeltaHistory > 0 {
+		base.DeltaHistory = override.DeltaHistory
 	}
 	if strings.TrimSpace(override.LogLevel) != "" {
 		base.LogLevel = override.LogLevel
@@ -185,6 +203,11 @@ func applyEnvOverrides(cfg Config) Config {
 			cfg.GossipInterval = parsed
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv(envAntiEntropy)); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.AntiEntropy = parsed
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv(envFanout)); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
 			cfg.Fanout = parsed
@@ -200,6 +223,11 @@ func applyEnvOverrides(cfg Config) Config {
 			cfg.OutboundQueue = parsed
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv(envDeltaHistory)); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.DeltaHistory = parsed
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv(envLogLevel)); v != "" {
 		cfg.LogLevel = v
 	}
@@ -213,6 +241,10 @@ func applyEnvOverrides(cfg Config) Config {
 
 func (c Config) GossipIntervalDuration() time.Duration {
 	return time.Duration(c.GossipInterval) * time.Millisecond
+}
+
+func (c Config) AntiEntropyIntervalDuration() time.Duration {
+	return time.Duration(c.AntiEntropy) * time.Millisecond
 }
 
 func (c Config) SeedNodeList() []string {

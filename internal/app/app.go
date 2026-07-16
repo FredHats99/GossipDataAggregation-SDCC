@@ -70,12 +70,14 @@ func New(cfg config.Config) (*App, error) {
 		logger,
 	)
 	deltaRuntime, err := deltagossip.NewRuntime(deltagossip.Config{
-		NodeID:       cfg.NodeID,
-		SelfEndpoint: cfg.BindAddr,
-		Peers:        cfg.SeedNodeList(),
-		Fanout:       cfg.Fanout,
-		SendTimeout:  2 * time.Second,
-		Logger:       logger,
+		NodeID:              cfg.NodeID,
+		SelfEndpoint:        cfg.BindAddr,
+		Peers:               cfg.SeedNodeList(),
+		Fanout:              cfg.Fanout,
+		SendTimeout:         2 * time.Second,
+		AntiEntropyInterval: cfg.AntiEntropyIntervalDuration(),
+		DeltaHistorySize:    cfg.DeltaHistory,
+		Logger:              logger,
 	}, aggregation, retryingSender)
 	if err != nil {
 		_ = deltaTransport.Close()

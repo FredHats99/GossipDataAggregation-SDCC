@@ -74,6 +74,25 @@ func FromState(kmax int, state State) (*Set, error) {
 	return s, nil
 }
 
+func StateFromSerialized(raw []byte) (State, error) {
+	var p payload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return State{}, err
+	}
+	if p.AggregateType != common.AggregateTOPK ||
+		p.ProtocolVersion != common.ProtocolVersion ||
+		p.SchemaVersion != schemaVersion {
+		return State{}, ErrUnsupportedVersion
+	}
+	if err := validateCandidates(p.StatePayload); err != nil {
+		return State{}, err
+	}
+	return State{
+		Candidates: cloneCandidates(p.StatePayload),
+		Version:    p.StateVersion,
+	}, nil
+}
+
 func (s *Set) Update(value any) (bool, error) {
 	candidate, err := candidateFrom(value)
 	if err != nil {

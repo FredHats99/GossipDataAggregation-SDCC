@@ -77,3 +77,29 @@ func TestJSONCodecRejectsInvalidFrom(t *testing.T) {
 		t.Fatalf("expected invalid from, got %v", err)
 	}
 }
+
+func TestJSONCodecAcceptsDeltaRangeMessageTypes(t *testing.T) {
+	codec := NewJSONCodec()
+	for _, messageType := range []string{"DeltaRangeReq", "DeltaRangeResp"} {
+		t.Run(messageType, func(t *testing.T) {
+			message := Envelope{
+				Type:      messageType,
+				Seq:       1,
+				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+				From:      "node1",
+				Payload:   []byte(`{"test":true}`),
+			}
+			frame, err := codec.Encode(message)
+			if err != nil {
+				t.Fatalf("encode %s: %v", messageType, err)
+			}
+			decoded, err := codec.Decode(frame)
+			if err != nil {
+				t.Fatalf("decode %s: %v", messageType, err)
+			}
+			if decoded.Type != messageType {
+				t.Fatalf("unexpected decoded type: %s", decoded.Type)
+			}
+		})
+	}
+}

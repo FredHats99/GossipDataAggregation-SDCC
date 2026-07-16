@@ -17,6 +17,8 @@ var (
 type StateDelta struct {
 	AggregateType string          `json:"aggregate_type"`
 	DeltaVersion  uint64          `json:"delta_version"`
+	OriginNodeID  string          `json:"origin_node_id,omitempty"`
+	DeltaSequence uint64          `json:"delta_sequence,omitempty"`
 	Delta         json.RawMessage `json:"delta"`
 }
 
@@ -43,6 +45,7 @@ func NewSUMStateDelta(deltaVersion uint64, delta SUMDelta) (StateDelta, error) {
 	return StateDelta{
 		AggregateType: common.AggregateSUM,
 		DeltaVersion:  deltaVersion,
+		OriginNodeID:  delta.NodeID,
 		Delta:         raw,
 	}, nil
 }
@@ -55,6 +58,7 @@ func NewTOPKStateDelta(deltaVersion uint64, delta TOPKDelta) (StateDelta, error)
 	return StateDelta{
 		AggregateType: common.AggregateTOPK,
 		DeltaVersion:  deltaVersion,
+		OriginNodeID:  delta.OriginNodeID,
 		Delta:         raw,
 	}, nil
 }
@@ -70,6 +74,9 @@ func DecodeSUMDelta(stateDelta StateDelta) (SUMDelta, error) {
 	if !common.ValidNodeID(delta.NodeID) {
 		return SUMDelta{}, ErrInvalidDeltaPayload
 	}
+	if stateDelta.OriginNodeID != "" && stateDelta.OriginNodeID != delta.NodeID {
+		return SUMDelta{}, ErrInvalidDeltaPayload
+	}
 	return delta, nil
 }
 
@@ -80,6 +87,9 @@ func DecodeTOPKDelta(stateDelta StateDelta) (TOPKDelta, error) {
 	var delta TOPKDelta
 	if err := json.Unmarshal(stateDelta.Delta, &delta); err != nil {
 		return TOPKDelta{}, fmt.Errorf("%w: %v", ErrInvalidDeltaPayload, err)
+	}
+	if stateDelta.OriginNodeID != "" && stateDelta.OriginNodeID != delta.OriginNodeID {
+		return TOPKDelta{}, ErrInvalidDeltaPayload
 	}
 	return delta, nil
 }
