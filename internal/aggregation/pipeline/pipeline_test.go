@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -10,6 +11,16 @@ import (
 	topkagg "gossipdataaggregation-sdcc/internal/aggregation/topk"
 	"gossipdataaggregation-sdcc/internal/gossip/protocol"
 )
+
+type failingJournal struct{}
+
+func (failingJournal) AppendDelta(protocol.StateDelta) error {
+	return errors.New("disk unavailable")
+}
+
+func (failingJournal) AppendSnapshot(protocol.SnapshotResp) error {
+	return errors.New("disk unavailable")
+}
 
 func TestManagerLocalUpdateEmitsDeltas(t *testing.T) {
 	manager := newManager(t, "node1", 3, 10)
@@ -123,6 +134,34 @@ func TestManagerNextOutboundHonorsContext(t *testing.T) {
 
 	if _, err := manager.NextOutbound(ctx); err == nil {
 		t.Fatal("expected context cancellation error")
+	}
+}
+
+func TestManagerRollsBackLocalUpdateWhenWALAppendFails(t *testing.T) {
+	manager := newManager(t, "node1", 3, 4)
+	manager.SetJournal(failingJournal{})
+
+	if _, advanced, err := manager.ApplyLocalUpdate(LocalUpdate{
+		AggregateType: common.AggregateSUM,
+		Value:         uint64(5),
+	}); !errors.Is(err, ErrPersistence) || advanced {
+		t.Fatalf("expected persistence failure without advancement, advanced=%v err=%v", advanced, err)
+	}
+	estimates, err := manager.Estimates(3)
+	if err != nil {
+		t.Fatalf("estimates after rollback: %v", err)
+	}
+	if estimates.SUM != 0 {
+		t.Fatalf("expected rollback to SUM 0, got %d", estimates.SUM)
+	}
+
+	manager.SetJournal(nil)
+	delta, advanced, err := manager.ApplyLocalUpdate(LocalUpdate{
+		AggregateType: common.AggregateSUM,
+		Value:         uint64(1),
+	})
+	if err != nil || !advanced || delta.DeltaSequence != 1 {
+		t.Fatalf("expected clean post-rollback sequence, delta=%+v advanced=%v err=%v", delta, advanced, err)
 	}
 }
 

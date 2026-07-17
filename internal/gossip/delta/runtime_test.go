@@ -133,7 +133,7 @@ func TestRuntimeForwardsOnlyAdvancingReceivedDeltas(t *testing.T) {
 	}
 }
 
-func TestRuntimeRequestsSnapshotWhenDigestDiffers(t *testing.T) {
+func TestRuntimeRequestsDeltaRangeWhenDigestIsAhead(t *testing.T) {
 	local := newRuntimeManager(t, "node2")
 	peer := newRuntimeManager(t, "node1")
 	if _, advanced, err := peer.ApplyLocalUpdate(pipeline.LocalUpdate{
@@ -166,10 +166,54 @@ func TestRuntimeRequestsSnapshotWhenDigestDiffers(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("expected one snapshot request, got %d", len(sent))
 	}
-	if sent[0].peer != "node1:7000" || sent[0].message.Type != "SnapshotReq" {
-		t.Fatalf("unexpected snapshot request send: %+v", sent[0])
+	if sent[0].peer != "node1:7000" || sent[0].message.Type != messageTypeDeltaRangeReq {
+		t.Fatalf("unexpected delta range request send: %+v", sent[0])
 	}
-	req, err := protocol.DecodeSnapshotReq(sent[0].message.Payload)
+	req, err := protocol.DecodeDeltaRangeReq(sent[0].message.Payload)
+	if err != nil {
+		t.Fatalf("decode delta range request: %v", err)
+	}
+	if len(req.Ranges) != 1 || req.Ranges[0].OriginNodeID != "node1" || req.Ranges[0].FromSequence != 1 {
+		t.Fatalf("unexpected requested ranges: %+v", req.Ranges)
+	}
+}
+
+func TestRuntimeRequestsSnapshotForEqualWatermarkDivergence(t *testing.T) {
+	local := newRuntimeManager(t, "node2")
+	peer := newRuntimeManager(t, "node1")
+	for manager, value := range map[*pipeline.Manager]uint64{local: 4, peer: 9} {
+		if _, advanced, err := manager.ApplyLocalUpdate(pipeline.LocalUpdate{
+			AggregateType: common.AggregateSUM,
+			Value:         value,
+		}); err != nil || !advanced {
+			t.Fatalf("manager update advanced=%v err=%v", advanced, err)
+		}
+	}
+	localDigest, err := local.Digest()
+	if err != nil {
+		t.Fatalf("local digest: %v", err)
+	}
+	peerDigest, err := peer.Digest()
+	if err != nil {
+		t.Fatalf("peer digest: %v", err)
+	}
+	peerDigest.DeltaSequences = localDigest.DeltaSequences
+
+	sender := &recordingSender{}
+	runtime, err := NewRuntime(Config{
+		NodeID:       "node2",
+		SelfEndpoint: "node2:7000",
+		Peers:        []string{"node1:7000", "node2:7000"},
+		Fanout:       1,
+		SendTimeout:  time.Second,
+	}, local, sender)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	runtime.HandleEnvelope(context.Background(), genericEnvelopeForTest(t, messageTypeStateDigest, "node1", 1, peerDigest))
+
+	sent := onlySentOfType(t, sender.snapshot(), messageTypeSnapshotReq)
+	req, err := protocol.DecodeSnapshotReq(sent.message.Payload)
 	if err != nil {
 		t.Fatalf("decode snapshot request: %v", err)
 	}

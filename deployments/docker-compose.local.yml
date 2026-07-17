@@ -19,12 +19,18 @@ services:
       TOPK_MAX: ${TOPK_MAX}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE}
       DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
+      DATA_DIR: ${DATA_DIR:-/var/lib/gossip}
+      SNAPSHOT_INTERVAL_SECONDS: ${SNAPSHOT_INTERVAL_SECONDS:-30}
+      WAL_FSYNC_MODE: ${WAL_FSYNC_MODE:-always}
+      WAL_FSYNC_BATCH_SIZE: ${WAL_FSYNC_BATCH_SIZE:-32}
       LOG_LEVEL: ${LOG_LEVEL}
     ports:
       - "${API_PORT_BASE}:8080"
       - "${GOSSIP_PORT}:${GOSSIP_PORT}/udp"
     networks:
       - gossip-net
+    volumes:
+      - node1-data:/var/lib/gossip
 
   node2:
     image: ${APP_IMAGE}
@@ -45,12 +51,18 @@ services:
       TOPK_MAX: ${TOPK_MAX}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE}
       DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
+      DATA_DIR: ${DATA_DIR:-/var/lib/gossip}
+      SNAPSHOT_INTERVAL_SECONDS: ${SNAPSHOT_INTERVAL_SECONDS:-30}
+      WAL_FSYNC_MODE: ${WAL_FSYNC_MODE:-always}
+      WAL_FSYNC_BATCH_SIZE: ${WAL_FSYNC_BATCH_SIZE:-32}
       LOG_LEVEL: ${LOG_LEVEL}
     ports:
       - "18081:8080"
       - "7001:${GOSSIP_PORT}/udp"
     networks:
       - gossip-net
+    volumes:
+      - node2-data:/var/lib/gossip
 
   node3:
     image: ${APP_IMAGE}
@@ -71,13 +83,27 @@ services:
       TOPK_MAX: ${TOPK_MAX}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE}
       DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
+      DATA_DIR: ${DATA_DIR:-/var/lib/gossip}
+      SNAPSHOT_INTERVAL_SECONDS: ${SNAPSHOT_INTERVAL_SECONDS:-30}
+      WAL_FSYNC_MODE: ${WAL_FSYNC_MODE:-always}
+      WAL_FSYNC_BATCH_SIZE: ${WAL_FSYNC_BATCH_SIZE:-32}
       LOG_LEVEL: ${LOG_LEVEL}
     ports:
       - "18082:8080"
       - "7002:${GOSSIP_PORT}/udp"
     networks:
       - gossip-net
+    volumes:
+      - node3-data:/var/lib/gossip
 
 networks:
   gossip-net:
     name: ${CLUSTER_NAME}-net
+
+volumes:
+  node1-data:
+    name: ${CLUSTER_NAME}-node1-data
+  node2-data:
+    name: ${CLUSTER_NAME}-node2-data
+  node3-data:
+    name: ${CLUSTER_NAME}-node3-data

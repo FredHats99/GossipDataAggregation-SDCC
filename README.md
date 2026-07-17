@@ -14,6 +14,7 @@ Implementation status and rationale are tracked in `IMPLEMENTATION_NOTES.md`.
 Aggregation design choices are tracked in `AGGREGATION_DESIGN.md`.
 Gossip aggregation pipeline choices are tracked in `GOSSIP_AGGREGATION_PIPELINE.md`.
 Anti-entropy and snapshot sync choices are tracked in `STEP7_ANTI_ENTROPY_STATE_SYNC.md`.
+Persistence and crash recovery choices are tracked in `STEP8_PERSISTENCE_CRASH_RECOVERY.md`.
 
 ### Local run
 
@@ -118,6 +119,17 @@ Step 7 adds periodic `StateDigest` exchange, delta-range repair, and snapshot fa
   replacement
 - temporary partitions heal after connectivity returns
 
+### Persistence and crash recovery
+
+Step 8 persists every effective aggregate mutation and restores state before
+the node rejoins the cluster:
+
+- append-only checksummed WAL with configurable fsync policy
+- periodic atomic snapshots with the covered WAL index
+- startup recovery from latest snapshot plus WAL tail
+- named Docker volume per node
+- preserved local delta sequence across restart
+
 ## Local Docker Setup (Functional Testing)
 
 This project includes a local Docker Compose setup to test gossip functionality with 3 nodes.
@@ -160,6 +172,8 @@ Edit `.env` to modify:
 - Gossip timing: `GOSSIP_INTERVAL_MS`, `ANTI_ENTROPY_INTERVAL_MS`
 - Fanout: `FANOUT`
 - Aggregation runtime: `TOPK_MAX`, `OUTBOUND_QUEUE_SIZE`, `DELTA_HISTORY_SIZE`
+- Persistence: `DATA_DIR`, `SNAPSHOT_INTERVAL_SECONDS`, `WAL_FSYNC_MODE`,
+  `WAL_FSYNC_BATCH_SIZE`
 - Seed topology: `SEED_NODES`
 - Logging: `LOG_LEVEL`
 - Exposed ports: `API_PORT_BASE`, `GOSSIP_PORT` (node2/node3 host ports are set in compose)
@@ -191,4 +205,10 @@ PowerShell wrapper (auto-detect `go`, fallback Docker):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/go-test.ps1
+```
+
+Docker crash/recovery test:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/test-crash-recovery.ps1
 ```

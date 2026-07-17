@@ -86,6 +86,9 @@ func NewRuntime(config Config, manager *pipeline.Manager, sender transport.Sende
 	if err != nil {
 		return nil, err
 	}
+	if digest, digestErr := manager.Digest(); digestErr == nil {
+		history.AdvanceWatermarks(digest.DeltaSequences)
+	}
 
 	return &Runtime{
 		nodeID:              config.NodeID,
@@ -165,7 +168,7 @@ func (r *Runtime) handleStateDigest(ctx context.Context, message transport.Envel
 		r.logger.Warn("local state digest build failed", "error", err.Error())
 		return
 	}
-	localDigest.DeltaSequences = r.history.Watermarks()
+	localDigest.DeltaSequences = mergeWatermarks(localDigest.DeltaSequences, r.history.Watermarks())
 
 	ranges := antientropy.MissingDeltaRanges(localDigest, peerDigest)
 	if len(ranges) > 0 {
@@ -335,7 +338,7 @@ func (r *Runtime) newDigestEnvelope() (transport.Envelope, error) {
 	if err != nil {
 		return transport.Envelope{}, err
 	}
-	digest.DeltaSequences = r.history.Watermarks()
+	digest.DeltaSequences = mergeWatermarks(digest.DeltaSequences, r.history.Watermarks())
 	return r.newEnvelope(messageTypeStateDigest, digest)
 }
 
@@ -358,7 +361,7 @@ func (r *Runtime) sendSnapshot(ctx context.Context, nodeID string, want []string
 		r.logger.Warn("snapshot build failed", "node_id", nodeID, "error", err.Error())
 		return
 	}
-	resp.DeltaSequences = r.history.Watermarks()
+	resp.DeltaSequences = mergeWatermarks(resp.DeltaSequences, r.history.Watermarks())
 	envelope, err := r.newEnvelope(messageTypeSnapshotResp, resp)
 	if err != nil {
 		r.logger.Warn("snapshot response envelope build failed", "node_id", nodeID, "error", err.Error())
@@ -374,6 +377,18 @@ func (r *Runtime) recordDelta(delta protocol.StateDelta) {
 	if err := r.history.Record(delta); err != nil {
 		r.logger.Warn("delta history record failed", "origin", delta.OriginNodeID, "delta_sequence", delta.DeltaSequence, "error", err.Error())
 	}
+}
+
+func mergeWatermarks(destination map[string]uint64, source map[string]uint64) map[string]uint64 {
+	if destination == nil && len(source) > 0 {
+		destination = make(map[string]uint64, len(source))
+	}
+	for nodeID, sequence := range source {
+		if sequence > destination[nodeID] {
+			destination[nodeID] = sequence
+		}
+	}
+	return destination
 }
 
 func (r *Runtime) newEnvelope(messageType string, payload any) (transport.Envelope, error) {

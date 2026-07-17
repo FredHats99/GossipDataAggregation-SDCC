@@ -19,12 +19,18 @@ services:
       TOPK_MAX: ${TOPK_MAX:-10}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE:-128}
       DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
+      DATA_DIR: ${DATA_DIR:-/var/lib/gossip}
+      SNAPSHOT_INTERVAL_SECONDS: ${SNAPSHOT_INTERVAL_SECONDS:-30}
+      WAL_FSYNC_MODE: ${WAL_FSYNC_MODE:-always}
+      WAL_FSYNC_BATCH_SIZE: ${WAL_FSYNC_BATCH_SIZE:-32}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "${API_PORT_BASE:-18080}:8080"
       - "${GOSSIP_PORT:-7000}:${GOSSIP_PORT:-7000}/udp"
     networks:
       - gossip-net
+    volumes:
+      - node1-data:/var/lib/gossip
 
   node2:
     image: ${APP_IMAGE:-gossip-agg:local}
@@ -45,12 +51,18 @@ services:
       TOPK_MAX: ${TOPK_MAX:-10}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE:-128}
       DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
+      DATA_DIR: ${DATA_DIR:-/var/lib/gossip}
+      SNAPSHOT_INTERVAL_SECONDS: ${SNAPSHOT_INTERVAL_SECONDS:-30}
+      WAL_FSYNC_MODE: ${WAL_FSYNC_MODE:-always}
+      WAL_FSYNC_BATCH_SIZE: ${WAL_FSYNC_BATCH_SIZE:-32}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "18081:8080"
       - "7001:${GOSSIP_PORT:-7000}/udp"
     networks:
       - gossip-net
+    volumes:
+      - node2-data:/var/lib/gossip
 
   node3:
     image: ${APP_IMAGE:-gossip-agg:local}
@@ -71,13 +83,27 @@ services:
       TOPK_MAX: ${TOPK_MAX:-10}
       OUTBOUND_QUEUE_SIZE: ${OUTBOUND_QUEUE_SIZE:-128}
       DELTA_HISTORY_SIZE: ${DELTA_HISTORY_SIZE:-1024}
+      DATA_DIR: ${DATA_DIR:-/var/lib/gossip}
+      SNAPSHOT_INTERVAL_SECONDS: ${SNAPSHOT_INTERVAL_SECONDS:-30}
+      WAL_FSYNC_MODE: ${WAL_FSYNC_MODE:-always}
+      WAL_FSYNC_BATCH_SIZE: ${WAL_FSYNC_BATCH_SIZE:-32}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "18082:8080"
       - "7002:${GOSSIP_PORT:-7000}/udp"
     networks:
       - gossip-net
+    volumes:
+      - node3-data:/var/lib/gossip
 
 networks:
   gossip-net:
     name: ${CLUSTER_NAME:-gossip-local}-net
+
+volumes:
+  node1-data:
+    name: ${CLUSTER_NAME:-gossip-local}-node1-data
+  node2-data:
+    name: ${CLUSTER_NAME:-gossip-local}-node2-data
+  node3-data:
+    name: ${CLUSTER_NAME:-gossip-local}-node3-data

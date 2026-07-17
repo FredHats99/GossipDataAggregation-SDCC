@@ -307,3 +307,33 @@ Tests added:
 - runtime anti-entropy heals a dropped-delta scenario
 - range eviction falls back to snapshot repair
 - a temporary network partition heals through delta-range exchange
+
+## Step 8 Persistence and Crash Recovery
+
+Step 8 adds node-local durable storage under `DATA_DIR`:
+
+- `internal/storage/wal`
+  - checksummed append-only mutation records
+  - monotonic record indexes
+  - `always`, `batch`, and `none` fsync modes
+  - crash-tail truncation with corruption rejection for complete records
+- `internal/storage/snapshot`
+  - atomic temporary-write + fsync + rename publication
+  - schema, covered WAL index, creation time, and SHA-256 metadata
+- `internal/storage.Store`
+  - journals deltas and merged snapshots
+  - creates checkpoints at an exact WAL boundary
+  - returns checkpoint plus WAL tail for recovery
+- pipeline integration
+  - persistence errors roll mutations back
+  - recovery bypasses re-journaling
+  - local delta sequence survives restart
+- application integration
+  - recovery completes before listeners start
+  - periodic and graceful-shutdown checkpoints
+- Docker integration
+  - one named data volume per node
+  - non-root runtime owns `/var/lib/gossip`
+
+Verification includes storage unit tests, application recovery tests, and a
+Docker kill/restart/rejoin workflow in `scripts/test-crash-recovery.ps1`.

@@ -17,12 +17,16 @@ func TestLoadFromPathOrEnv_FileAndEnvOverride(t *testing.T) {
 	t.Setenv(envTopKMax, "")
 	t.Setenv(envOutboundQueue, "")
 	t.Setenv(envDeltaHistory, "")
+	t.Setenv(envDataDir, "")
+	t.Setenv(envSnapshotInterval, "")
+	t.Setenv(envWALFsyncMode, "")
+	t.Setenv(envWALFsyncBatch, "")
 	t.Setenv(envLogLevel, "")
 	t.Setenv(envShutdownTimeout, "")
 
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "node.json")
-	content := []byte(`{"node_id":"node-from-file","http_addr":":9010","bind_addr":"0.0.0.0:7000","seed_nodes":"node1:7000,node2:7000","gossip_interval_ms":1500,"anti_entropy_interval_ms":12000,"fanout":3,"topk_max":20,"outbound_queue_size":256,"delta_history_size":2048,"log_level":"debug","shutdown_timeout_seconds":7}`)
+	content := []byte(`{"node_id":"node-from-file","http_addr":":9010","bind_addr":"0.0.0.0:7000","seed_nodes":"node1:7000,node2:7000","gossip_interval_ms":1500,"anti_entropy_interval_ms":12000,"fanout":3,"topk_max":20,"outbound_queue_size":256,"delta_history_size":2048,"data_dir":"file-data","snapshot_interval_seconds":60,"wal_fsync_mode":"batch","wal_fsync_batch_size":64,"log_level":"debug","shutdown_timeout_seconds":7}`)
 	if err := os.WriteFile(configPath, content, 0o600); err != nil {
 		t.Fatalf("write config fixture: %v", err)
 	}
@@ -36,6 +40,10 @@ func TestLoadFromPathOrEnv_FileAndEnvOverride(t *testing.T) {
 	t.Setenv(envTopKMax, "12")
 	t.Setenv(envOutboundQueue, "64")
 	t.Setenv(envDeltaHistory, "512")
+	t.Setenv(envDataDir, "env-data")
+	t.Setenv(envSnapshotInterval, "15")
+	t.Setenv(envWALFsyncMode, "always")
+	t.Setenv(envWALFsyncBatch, "8")
 	t.Setenv(envShutdownTimeout, "12")
 
 	cfg, err := LoadFromPathOrEnv(configPath)
@@ -76,6 +84,9 @@ func TestLoadFromPathOrEnv_FileAndEnvOverride(t *testing.T) {
 	if cfg.DeltaHistory != 512 {
 		t.Fatalf("unexpected delta history size override: %d", cfg.DeltaHistory)
 	}
+	if cfg.DataDir != "env-data" || cfg.SnapshotInterval != 15 || cfg.WALFsyncMode != "always" || cfg.WALFsyncBatch != 8 {
+		t.Fatalf("unexpected persistence overrides: %+v", cfg)
+	}
 	if cfg.ShutdownTimeout != 12 {
 		t.Fatalf("unexpected shutdown timeout override: %d", cfg.ShutdownTimeout)
 	}
@@ -92,6 +103,10 @@ func TestLoadFromPathOrEnv_DefaultsOnly(t *testing.T) {
 	t.Setenv(envTopKMax, "")
 	t.Setenv(envOutboundQueue, "")
 	t.Setenv(envDeltaHistory, "")
+	t.Setenv(envDataDir, "")
+	t.Setenv(envSnapshotInterval, "")
+	t.Setenv(envWALFsyncMode, "")
+	t.Setenv(envWALFsyncBatch, "")
 	t.Setenv(envLogLevel, "")
 	t.Setenv(envShutdownTimeout, "")
 
@@ -100,7 +115,7 @@ func TestLoadFromPathOrEnv_DefaultsOnly(t *testing.T) {
 		t.Fatalf("load defaults failed: %v", err)
 	}
 
-	if cfg.NodeID == "" || cfg.HTTPAddr == "" || cfg.BindAddr == "" || cfg.LogLevel == "" || cfg.ShutdownTimeout <= 0 || cfg.GossipInterval <= 0 || cfg.AntiEntropy <= 0 || cfg.Fanout <= 0 || cfg.TopKMax <= 0 || cfg.OutboundQueue <= 0 || cfg.DeltaHistory <= 0 {
+	if cfg.NodeID == "" || cfg.HTTPAddr == "" || cfg.BindAddr == "" || cfg.LogLevel == "" || cfg.ShutdownTimeout <= 0 || cfg.GossipInterval <= 0 || cfg.AntiEntropy <= 0 || cfg.Fanout <= 0 || cfg.TopKMax <= 0 || cfg.OutboundQueue <= 0 || cfg.DeltaHistory <= 0 || cfg.DataDir == "" || cfg.SnapshotInterval <= 0 || cfg.WALFsyncMode == "" || cfg.WALFsyncBatch <= 0 {
 		t.Fatalf("defaults are not valid: %+v", cfg)
 	}
 }
@@ -117,6 +132,10 @@ func TestLoadFromPathOrEnv_InvalidSeedNodes(t *testing.T) {
 	t.Setenv(envTopKMax, "10")
 	t.Setenv(envOutboundQueue, "128")
 	t.Setenv(envDeltaHistory, "1024")
+	t.Setenv(envDataDir, "data")
+	t.Setenv(envSnapshotInterval, "30")
+	t.Setenv(envWALFsyncMode, "always")
+	t.Setenv(envWALFsyncBatch, "32")
 
 	t.Setenv(envSeedNodes, "node1:7000,node1:7000")
 	if _, err := LoadFromPathOrEnv(""); err == nil {

@@ -13,33 +13,41 @@ import (
 )
 
 const (
-	envNodeID          = "NODE_ID"
-	envHTTPAddr        = "HTTP_ADDR"
-	envBindAddr        = "BIND_ADDR"
-	envSeedNodes       = "SEED_NODES"
-	envGossipInterval  = "GOSSIP_INTERVAL_MS"
-	envAntiEntropy     = "ANTI_ENTROPY_INTERVAL_MS"
-	envFanout          = "FANOUT"
-	envTopKMax         = "TOPK_MAX"
-	envOutboundQueue   = "OUTBOUND_QUEUE_SIZE"
-	envDeltaHistory    = "DELTA_HISTORY_SIZE"
-	envLogLevel        = "LOG_LEVEL"
-	envShutdownTimeout = "SHUTDOWN_TIMEOUT_SECONDS"
+	envNodeID           = "NODE_ID"
+	envHTTPAddr         = "HTTP_ADDR"
+	envBindAddr         = "BIND_ADDR"
+	envSeedNodes        = "SEED_NODES"
+	envGossipInterval   = "GOSSIP_INTERVAL_MS"
+	envAntiEntropy      = "ANTI_ENTROPY_INTERVAL_MS"
+	envFanout           = "FANOUT"
+	envTopKMax          = "TOPK_MAX"
+	envOutboundQueue    = "OUTBOUND_QUEUE_SIZE"
+	envDeltaHistory     = "DELTA_HISTORY_SIZE"
+	envDataDir          = "DATA_DIR"
+	envSnapshotInterval = "SNAPSHOT_INTERVAL_SECONDS"
+	envWALFsyncMode     = "WAL_FSYNC_MODE"
+	envWALFsyncBatch    = "WAL_FSYNC_BATCH_SIZE"
+	envLogLevel         = "LOG_LEVEL"
+	envShutdownTimeout  = "SHUTDOWN_TIMEOUT_SECONDS"
 )
 
 type Config struct {
-	NodeID          string `json:"node_id"`
-	HTTPAddr        string `json:"http_addr"`
-	BindAddr        string `json:"bind_addr"`
-	SeedNodes       string `json:"seed_nodes"`
-	GossipInterval  int    `json:"gossip_interval_ms"`
-	AntiEntropy     int    `json:"anti_entropy_interval_ms"`
-	Fanout          int    `json:"fanout"`
-	TopKMax         int    `json:"topk_max"`
-	OutboundQueue   int    `json:"outbound_queue_size"`
-	DeltaHistory    int    `json:"delta_history_size"`
-	LogLevel        string `json:"log_level"`
-	ShutdownTimeout int    `json:"shutdown_timeout_seconds"`
+	NodeID           string `json:"node_id"`
+	HTTPAddr         string `json:"http_addr"`
+	BindAddr         string `json:"bind_addr"`
+	SeedNodes        string `json:"seed_nodes"`
+	GossipInterval   int    `json:"gossip_interval_ms"`
+	AntiEntropy      int    `json:"anti_entropy_interval_ms"`
+	Fanout           int    `json:"fanout"`
+	TopKMax          int    `json:"topk_max"`
+	OutboundQueue    int    `json:"outbound_queue_size"`
+	DeltaHistory     int    `json:"delta_history_size"`
+	DataDir          string `json:"data_dir"`
+	SnapshotInterval int    `json:"snapshot_interval_seconds"`
+	WALFsyncMode     string `json:"wal_fsync_mode"`
+	WALFsyncBatch    int    `json:"wal_fsync_batch_size"`
+	LogLevel         string `json:"log_level"`
+	ShutdownTimeout  int    `json:"shutdown_timeout_seconds"`
 }
 
 func LoadFromPathOrEnv(path string) (Config, error) {
@@ -97,6 +105,18 @@ func (c Config) Validate() error {
 	if c.DeltaHistory <= 0 {
 		return errors.New("delta_history_size must be greater than zero")
 	}
+	if strings.TrimSpace(c.DataDir) == "" {
+		return errors.New("data_dir must not be empty")
+	}
+	if c.SnapshotInterval <= 0 {
+		return errors.New("snapshot_interval_seconds must be greater than zero")
+	}
+	if c.WALFsyncMode != "always" && c.WALFsyncMode != "batch" && c.WALFsyncMode != "none" {
+		return errors.New("wal_fsync_mode must be always, batch, or none")
+	}
+	if c.WALFsyncBatch <= 0 {
+		return errors.New("wal_fsync_batch_size must be greater than zero")
+	}
 	if c.ShutdownTimeout <= 0 {
 		return errors.New("shutdown_timeout_seconds must be greater than zero")
 	}
@@ -118,18 +138,22 @@ func (c Config) Validate() error {
 
 func defaultConfig() Config {
 	return Config{
-		NodeID:          "node-local",
-		HTTPAddr:        ":8080",
-		BindAddr:        ":7000",
-		SeedNodes:       "",
-		GossipInterval:  1000,
-		AntiEntropy:     15000,
-		Fanout:          2,
-		TopKMax:         10,
-		OutboundQueue:   128,
-		DeltaHistory:    1024,
-		LogLevel:        "info",
-		ShutdownTimeout: 10,
+		NodeID:           "node-local",
+		HTTPAddr:         ":8080",
+		BindAddr:         ":7000",
+		SeedNodes:        "",
+		GossipInterval:   1000,
+		AntiEntropy:      15000,
+		Fanout:           2,
+		TopKMax:          10,
+		OutboundQueue:    128,
+		DeltaHistory:     1024,
+		DataDir:          "data",
+		SnapshotInterval: 30,
+		WALFsyncMode:     "always",
+		WALFsyncBatch:    32,
+		LogLevel:         "info",
+		ShutdownTimeout:  10,
 	}
 }
 
@@ -175,6 +199,18 @@ func merge(base, override Config) Config {
 	}
 	if override.DeltaHistory > 0 {
 		base.DeltaHistory = override.DeltaHistory
+	}
+	if strings.TrimSpace(override.DataDir) != "" {
+		base.DataDir = override.DataDir
+	}
+	if override.SnapshotInterval > 0 {
+		base.SnapshotInterval = override.SnapshotInterval
+	}
+	if strings.TrimSpace(override.WALFsyncMode) != "" {
+		base.WALFsyncMode = override.WALFsyncMode
+	}
+	if override.WALFsyncBatch > 0 {
+		base.WALFsyncBatch = override.WALFsyncBatch
 	}
 	if strings.TrimSpace(override.LogLevel) != "" {
 		base.LogLevel = override.LogLevel
@@ -228,6 +264,22 @@ func applyEnvOverrides(cfg Config) Config {
 			cfg.DeltaHistory = parsed
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv(envDataDir)); v != "" {
+		cfg.DataDir = v
+	}
+	if v := strings.TrimSpace(os.Getenv(envSnapshotInterval)); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.SnapshotInterval = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv(envWALFsyncMode)); v != "" {
+		cfg.WALFsyncMode = v
+	}
+	if v := strings.TrimSpace(os.Getenv(envWALFsyncBatch)); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.WALFsyncBatch = parsed
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv(envLogLevel)); v != "" {
 		cfg.LogLevel = v
 	}
@@ -245,6 +297,10 @@ func (c Config) GossipIntervalDuration() time.Duration {
 
 func (c Config) AntiEntropyIntervalDuration() time.Duration {
 	return time.Duration(c.AntiEntropy) * time.Millisecond
+}
+
+func (c Config) SnapshotIntervalDuration() time.Duration {
+	return time.Duration(c.SnapshotInterval) * time.Second
 }
 
 func (c Config) SeedNodeList() []string {

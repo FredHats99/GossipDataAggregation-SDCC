@@ -12,7 +12,9 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/gossip-node ./cmd/node
 
 FROM alpine:3.20
-RUN adduser -D -u 10001 appuser
+RUN adduser -D -u 10001 appuser \
+    && mkdir -p /var/lib/gossip \
+    && chown -R appuser:appuser /var/lib/gossip
 USER appuser
 WORKDIR /app
 

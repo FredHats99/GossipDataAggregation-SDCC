@@ -9,6 +9,10 @@
   "topk_max": 10,
   "outbound_queue_size": 128,
   "delta_history_size": 1024,
+  "data_dir": "data",
+  "snapshot_interval_seconds": 30,
+  "wal_fsync_mode": "always",
+  "wal_fsync_batch_size": 32,
   "log_level": "info",
   "shutdown_timeout_seconds": 10
 }

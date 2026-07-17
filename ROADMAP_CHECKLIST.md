@@ -147,19 +147,19 @@ This checklist is designed to track implementation progress for a gossip-based d
 
 ## 8) Persistence and Crash Recovery
 
-- [ ] Implement WAL in `internal/storage/wal`:
-  - [ ] Append-only update records
-  - [ ] fsync policy and batching strategy
-- [ ] Implement snapshots in `internal/storage/snapshot`:
-  - [ ] Periodic snapshot creation
-  - [ ] Snapshot metadata and integrity check
-- [ ] Implement startup recovery:
-  - [ ] Load latest snapshot
-  - [ ] Replay WAL tail
-- [ ] Add crash-recovery tests:
-  - [ ] Kill node during write workload
-  - [ ] Restart node and verify no invalid rollback
-  - [ ] Rejoin and converge with peers
+- [x] Implement WAL in `internal/storage/wal`:
+  - [x] Append-only update records
+  - [x] fsync policy and batching strategy
+- [x] Implement snapshots in `internal/storage/snapshot`:
+  - [x] Periodic snapshot creation
+  - [x] Snapshot metadata and integrity check
+- [x] Implement startup recovery:
+  - [x] Load latest snapshot
+  - [x] Replay WAL tail
+- [x] Add crash-recovery tests:
+  - [x] Kill node during write workload
+  - [x] Restart node and verify no invalid rollback
+  - [x] Rejoin and converge with peers
 
 ## 9) API and Observability
 
@@ -272,8 +272,8 @@ This checklist is designed to track implementation progress for a gossip-based d
   - [x] `internal/aggregation/sum`
   - [x] `internal/aggregation/topk`
   - [x] `internal/aggregation/pipeline`
-  - [ ] `internal/storage/wal`
-  - [ ] `internal/storage/snapshot`
+  - [x] `internal/storage/wal`
+  - [x] `internal/storage/snapshot`
   - [x] `internal/api`
   - [x] `internal/observability`
   - [ ] `internal/simulation`
@@ -302,7 +302,7 @@ This checklist is designed to track implementation progress for a gossip-based d
 ## Definition of Done (Project)
 
 - [ ] Cluster converges for selected operations in normal conditions.
-- [ ] Crash/restart tests pass with state recovery and re-convergence.
+- [x] Crash/restart tests pass with state recovery and re-convergence.
 - [ ] Fault scenarios (loss/partition) recover via anti-entropy/snapshot.
 - [ ] Docker Compose deployment works locally and on EC2.
 - [ ] README includes architecture, run commands, and test instructions.
