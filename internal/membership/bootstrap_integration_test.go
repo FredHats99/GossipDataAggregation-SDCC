@@ -12,27 +12,37 @@ import (
 	"time"
 )
 
-func TestMembershipConvergence_NewNodeJoinBecomesClusterVisible(t *testing.T) {
+func TestMembershipConvergence_TransitiveDiscoveryWithPartialSeeds(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	addr1 := freeUDPAddr(t)
 	addr2 := freeUDPAddr(t)
 	addr3 := freeUDPAddr(t)
-	seeds := []string{addr1, addr2, addr3}
 
-	node1, cancel1 := startNode(t, "node1", addr1, seeds, 100*time.Millisecond, 2, logger)
+	// Chain bootstrap topology: node1 has no seed, node2 only knows node1,
+	// and node3 only knows node2. Full visibility therefore requires member
+	// entries learned from one peer to be disseminated to another.
+	node1, cancel1 := startNode(t, "node1", addr1, nil, 100*time.Millisecond, 2, logger)
 	defer cancel1()
-	node2, cancel2 := startNode(t, "node2", addr2, seeds, 100*time.Millisecond, 2, logger)
+	node2, cancel2 := startNode(t, "node2", addr2, []string{addr1}, 100*time.Millisecond, 2, logger)
 	defer cancel2()
 
 	// Node3 joins after node1/node2 are already running.
 	time.Sleep(300 * time.Millisecond)
-	node3, cancel3 := startNode(t, "node3", addr3, seeds, 100*time.Millisecond, 2, logger)
+	node3, cancel3 := startNode(t, "node3", addr3, []string{addr2}, 100*time.Millisecond, 2, logger)
 	defer cancel3()
 
-	waitFor(t, 10*time.Second, func() bool { return hasMemberStatus(node1.MembersSnapshot(), "node3", StatusAlive) })
-	waitFor(t, 10*time.Second, func() bool { return hasMemberStatus(node2.MembersSnapshot(), "node3", StatusAlive) })
-	waitFor(t, 10*time.Second, func() bool { return hasMemberStatus(node3.MembersSnapshot(), "node1", StatusAlive) })
+	for _, node := range []*Bootstrapper{node1, node2, node3} {
+		for _, nodeID := range []string{"node1", "node2", "node3"} {
+			waitFor(t, 10*time.Second, func() bool {
+				return hasMemberStatus(node.MembersSnapshot(), nodeID, StatusAlive)
+			})
+		}
+	}
+
+	if _, exists := node1.AlivePeerEndpoints()["node3"]; !exists {
+		t.Fatal("node1 did not expose transitively discovered node3 as a gossip peer")
+	}
 }
 
 func TestMembershipConvergence_DeadNodeEventuallyMarkedDead(t *testing.T) {

@@ -37,6 +37,7 @@ type Config struct {
 	NodeID              string
 	SelfEndpoint        string
 	Peers               []string
+	PeerProvider        func() map[string]string
 	Fanout              int
 	SendTimeout         time.Duration
 	AntiEntropyInterval time.Duration
@@ -48,6 +49,7 @@ type Runtime struct {
 	nodeID              string
 	selfEndpoint        string
 	peers               []string
+	peerProvider        func() map[string]string
 	fanout              int
 	sendTimeout         time.Duration
 	antiEntropyInterval time.Duration
@@ -94,6 +96,7 @@ func NewRuntime(config Config, manager *pipeline.Manager, sender transport.Sende
 		nodeID:              config.NodeID,
 		selfEndpoint:        config.SelfEndpoint,
 		peers:               normalizedPeers(config.Peers),
+		peerProvider:        config.PeerProvider,
 		fanout:              config.Fanout,
 		sendTimeout:         config.SendTimeout,
 		antiEntropyInterval: config.AntiEntropyInterval,
@@ -440,6 +443,11 @@ func (r *Runtime) sendEnvelopeToNode(ctx context.Context, nodeID string, message
 }
 
 func (r *Runtime) peerEndpointForNode(nodeID string) (string, bool) {
+	if r.peerProvider != nil {
+		if endpoint := strings.TrimSpace(r.peerProvider()[nodeID]); endpoint != "" {
+			return endpoint, true
+		}
+	}
 	for _, peer := range r.peers {
 		host, _, err := net.SplitHostPort(peer)
 		if err == nil && strings.TrimSpace(host) == nodeID {
@@ -451,11 +459,26 @@ func (r *Runtime) peerEndpointForNode(nodeID string) (string, bool) {
 
 func (r *Runtime) samplePeers() []string {
 	candidates := make([]string, 0, len(r.peers))
+	seen := make(map[string]struct{})
 	for _, peer := range r.peers {
 		if isSelfPeer(peer, r.nodeID, r.selfEndpoint) {
 			continue
 		}
+		seen[peer] = struct{}{}
 		candidates = append(candidates, peer)
+	}
+	if r.peerProvider != nil {
+		for _, peer := range r.peerProvider() {
+			peer = strings.TrimSpace(peer)
+			if peer == "" || isSelfPeer(peer, r.nodeID, r.selfEndpoint) {
+				continue
+			}
+			if _, exists := seen[peer]; exists {
+				continue
+			}
+			seen[peer] = struct{}{}
+			candidates = append(candidates, peer)
+		}
 	}
 	if len(candidates) <= r.fanout {
 		return candidates

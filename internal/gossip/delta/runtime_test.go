@@ -91,6 +91,46 @@ func TestRuntimeSendsLocalOutboundDeltas(t *testing.T) {
 	}
 }
 
+func TestRuntimeUsesDynamicallyDiscoveredPeer(t *testing.T) {
+	local := newRuntimeManager(t, "node1")
+	peer := newRuntimeManager(t, "node2")
+	if _, advanced, err := peer.ApplyLocalUpdate(pipeline.LocalUpdate{
+		AggregateType: common.AggregateSUM,
+		Value:         uint64(9),
+	}); err != nil || !advanced {
+		t.Fatalf("peer update advanced=%v err=%v", advanced, err)
+	}
+	peerDigest, err := peer.Digest()
+	if err != nil {
+		t.Fatalf("peer digest: %v", err)
+	}
+
+	sender := &recordingSender{}
+	runtime, err := NewRuntime(Config{
+		NodeID:       "node1",
+		SelfEndpoint: "node1:7000",
+		Peers:        []string{"node1:7000"},
+		PeerProvider: func() map[string]string {
+			return map[string]string{"node2": "node2:7000"}
+		},
+		Fanout:      1,
+		SendTimeout: time.Second,
+		Logger:      slog.Default(),
+	}, local, sender)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	runtime.HandleEnvelope(context.Background(), genericEnvelopeForTest(t, messageTypeStateDigest, "node2", 1, peerDigest))
+	sent := sender.snapshot()
+	if len(sent) != 1 {
+		t.Fatalf("expected one direct request to discovered peer, got %d", len(sent))
+	}
+	if sent[0].peer != "node2:7000" || sent[0].message.Type != messageTypeDeltaRangeReq {
+		t.Fatalf("unexpected dynamic peer send: %+v", sent[0])
+	}
+}
+
 func TestRuntimeForwardsOnlyAdvancingReceivedDeltas(t *testing.T) {
 	manager, err := pipeline.New(pipeline.Config{
 		NodeID:            "node2",

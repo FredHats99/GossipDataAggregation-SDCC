@@ -60,16 +60,16 @@ This checklist is designed to track implementation progress for a gossip-based d
 - [x] Implement static seed-based bootstrap:
   - [x] Seed parsing from config/env
   - [x] Join handshake
-- [ ] Implement gossip membership view:
+- [x] Implement gossip membership view:
   - [x] Periodic seed/peer probing
   - [x] Membership table with statuses (`alive`, `suspect`, `dead`)
-  - [ ] Disseminate membership entries through gossip messages
+  - [x] Disseminate versioned membership entries through bounded `Ping`/`Ack` batches
   - [x] Align membership `Ping`/`Ack` with protocol envelope
 - [x] Implement failure detection:
   - [x] Timeout or phi-based suspicion
   - [x] State transition thresholds and timers
 - [x] Implement membership convergence tests:
-  - [x] New node joins and becomes visible cluster-wide
+  - [x] New node joins through a partial-seed chain and becomes visible cluster-wide
   - [x] Dead node eventually marked dead
 
 ## 4) Gossip Transport Layer

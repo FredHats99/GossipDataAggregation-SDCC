@@ -14,10 +14,11 @@ type MembersHandler struct {
 }
 
 type memberResponse struct {
-	NodeID   string `json:"node_id"`
-	Endpoint string `json:"endpoint"`
-	Status   string `json:"status"`
-	LastSeen string `json:"last_seen"`
+	NodeID      string `json:"node_id"`
+	Endpoint    string `json:"endpoint"`
+	Status      string `json:"status"`
+	Incarnation uint64 `json:"incarnation"`
+	LastSeen    string `json:"last_seen"`
 }
 
 func NewMembersHandler(provider MembersProvider) *MembersHandler {
@@ -37,10 +38,11 @@ func (h *MembersHandler) members(w http.ResponseWriter, r *http.Request) {
 	out := make([]memberResponse, 0, len(raw))
 	for _, m := range raw {
 		out = append(out, memberResponse{
-			NodeID:   m.NodeID,
-			Endpoint: m.Endpoint,
-			Status:   string(m.Status),
-			LastSeen: m.LastSeen.UTC().Format(time.RFC3339Nano),
+			NodeID:      m.NodeID,
+			Endpoint:    m.Endpoint,
+			Status:      string(m.Status),
+			Incarnation: m.Incarnation,
+			LastSeen:    m.LastSeen.UTC().Format(time.RFC3339Nano),
 		})
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"members": out})

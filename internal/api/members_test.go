@@ -15,10 +15,11 @@ func TestMembersEndpoint(t *testing.T) {
 	handler := NewMembersHandler(func() []membership.Member {
 		return []membership.Member{
 			{
-				NodeID:   "node1",
-				Endpoint: "node1:7000",
-				Status:   membership.StatusAlive,
-				LastSeen: now,
+				NodeID:      "node1",
+				Endpoint:    "node1:7000",
+				Status:      membership.StatusAlive,
+				Incarnation: 42,
+				LastSeen:    now,
 			},
 		}
 	})
@@ -43,5 +44,8 @@ func TestMembersEndpoint(t *testing.T) {
 	}
 	if body["members"][0]["node_id"] != "node1" {
 		t.Fatalf("unexpected node_id: %v", body["members"][0]["node_id"])
+	}
+	if body["members"][0]["incarnation"] != float64(42) {
+		t.Fatalf("unexpected incarnation: %v", body["members"][0]["incarnation"])
 	}
 }

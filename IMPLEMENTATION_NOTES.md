@@ -16,10 +16,10 @@ Completed or partially completed items now marked explicitly:
 - UDP frame transport exists through `UDPFrameTransport`
 - Dockerfile, local Compose file, `.env`, `.env.example`, `scripts`, and
   `configs/node.dev.json` are present
-- membership view remains partial because membership entries are not yet
-  disseminated through gossip messages
+- membership entries are disseminated transitively through bounded `Ping`/`Ack`
+  batches and discovered live members feed both membership and aggregate gossip
 
-The membership checklist was intentionally changed from complete to partial:
+The remaining membership backlog is now closed:
 
 - implemented:
   - seed parsing
@@ -28,8 +28,10 @@ The membership checklist was intentionally changed from complete to partial:
   - membership table with `alive`, `suspect`, `dead`
   - failure detection transitions
   - `Ping`/`Ack` envelope alignment
-- still open:
-  - disseminating membership entries through gossip messages
+  - incarnation-ordered membership merge and self-refutation
+  - bounded transitive membership dissemination
+  - dynamic peer sampling and aggregate-gossip routing
+  - convergence testing with partial seed knowledge
 
 ## Membership Protocol Alignment
 
@@ -42,11 +44,12 @@ text protocol:
 Membership now uses the protocol envelope defined in `PROTOCOL_SPEC.md`:
 
 - `Ping`
-  - envelope `type`: `Ping`
-  - payload: `node_id`, `incarnation`
+  - envelope `type`: `Ping`, protocol version `v2`
+  - payload: `node_id`, `endpoint`, `incarnation`, optional `membership`
 - `Ack`
-  - envelope `type`: `Ack`
-  - payload: `acked_seq`, `status`, optional `reason`
+  - envelope `type`: `Ack`, protocol version `v2`
+  - payload: `acked_seq`, `status`, optional `reason`, `endpoint`,
+    `incarnation`, optional `membership`
 
 Code paths:
 
@@ -54,12 +57,14 @@ Code paths:
 - envelope codec: `internal/gossip/transport/json_codec.go`
 - UDP frame I/O: `internal/gossip/transport/udp.go`
 
-The membership listener decodes incoming UDP frames with `JSONCodec`, accepts
-only `Ping` envelopes, validates that payload `node_id` matches envelope `from`,
-marks the peer alive, and replies with an `Ack` envelope.
+The membership listener decodes incoming UDP frames with `JSONCodec`, validates
+that `Ping.node_id` matches envelope `from`, merges the bounded membership
+batch, records direct liveness evidence, and replies with its own entry batch.
 
-The join client creates a `Ping` envelope, sends it over UDP, waits for an
-`Ack`, verifies `acked_seq`, and returns the peer node id from envelope `from`.
+The join client verifies `acked_seq`, merges the response batch, records the
+responder's advertised endpoint/incarnation, and retains the contacted seed as
+a local failure-detector alias. The full convergence and restart rules are
+documented in `STEP3_MEMBERSHIP_DISSEMINATION.md`.
 
 ## UDP Frame Transport
 
@@ -110,11 +115,11 @@ New transport errors:
 Important integration note:
 
 `MessageGuard` is implemented and tested, but it is not yet wired into the
-membership runtime. The reason is restart semantics: the current node sequence
-counter is in memory, so a restarted node may emit `seq=1` again. Applying
-strict monotonic sequence checks to membership before using `incarnation` or a
-persistent sequence counter would incorrectly reject legitimate post-restart
-messages.
+membership runtime. Membership state now has process incarnation semantics,
+but `MessageGuard` still indexes its sequence high-water mark only by
+`node_id`. A restarted node may emit `seq=1`, so applying that guard to
+`Ping`/`Ack` before keying it by `(node_id, incarnation)` or persisting the
+counter would reject legitimate post-restart handshakes.
 
 The guard is ready for the future gossip/aggregation receive pipeline, where
 the restart/versioning policy can be applied deliberately.
@@ -185,8 +190,8 @@ Step 4 is complete at the component level:
 Step 4 is not yet fully applied to all runtime paths:
 
 - membership uses the envelope codec and UDP frame transport
-- membership does not yet use `MessageGuard` because restart/incarnation
-  semantics must be finalized first
+- membership does not use `MessageGuard` because the guard's sequence key is
+  not yet scoped by the now-defined incarnation
 - aggregation gossip runtime now uses the sender-side wrappers for `StateDelta`
   dissemination; the receive side enters through membership listener dispatch
 
@@ -242,18 +247,15 @@ Verification status:
 - Unit suite passed through `scripts/go-test.ps1`.
 - Integration suite passed through `scripts/go-test.ps1 -Integration`.
 
-## Remaining Design Work
+## Post-Step 6 Follow-up Status
 
-Recommended next decisions before Step 7:
-
-- use `incarnation` in membership to distinguish node restarts from stale
-  messages
-- decide whether envelope `seq` is persisted or reset per incarnation
-- disseminate membership entries through gossip messages instead of probing
-  only configured seeds/peers
-- validate Docker Compose multi-node convergence for `SUM` and `TOPK`
-- decide whether the delta runtime inbound path should use a bounded queue
-  instead of direct asynchronous callback dispatch
+- completed: incarnation-ordered membership restart handling
+- completed: transitive membership dissemination beyond configured seeds
+- completed: Docker Compose convergence for `SUM` and `TOPK`
+- still optional: persist envelope `seq` or scope `MessageGuard` by incarnation
+  before applying it to membership handshakes
+- still optional: place the delta runtime inbound callback behind a dedicated
+  bounded queue instead of asynchronous callback dispatch
 
 ## Step 7 Anti-Entropy and Snapshot Sync
 

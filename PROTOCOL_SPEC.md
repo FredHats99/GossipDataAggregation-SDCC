@@ -57,10 +57,18 @@ Purpose:
 
 - liveness check and membership freshness
 
+Envelope version: `v2`
+
 Payload:
 
 - `node_id` (string)
+- `endpoint` (reachable `host:port`)
 - `incarnation` (uint64)
+- `membership` (optional array of at most 64 membership entries)
+  - `node_id` (string)
+  - `endpoint` (reachable `host:port`)
+  - `status` (`alive|suspect|dead`)
+  - `incarnation` (uint64)
 
 ## 3.2 `StateDigest`
 
@@ -147,11 +155,16 @@ Purpose:
 
 - acknowledge receipt/application of a sequence
 
+Membership handshake envelope version: `v2`
+
 Payload:
 
 - `acked_seq` (uint64)
 - `status` (`accepted|rejected`)
 - `reason` (string, optional)
+- `endpoint` (responder's reachable `host:port`)
+- `incarnation` (responder's uint64 process incarnation)
+- `membership` (optional bounded membership-entry array using the `Ping` entry shape)
 
 ## 3.7 `SnapshotReq`
 
@@ -194,6 +207,8 @@ Snapshot apply rule:
 - reject checksum mismatch
 - reject stale or non-monotonic `seq` per sender policy
 - enforce max message size
+- reject direct membership observations with missing endpoint or zero incarnation
+- ignore malformed indirectly disseminated membership entries
 
 ## 5) Compatibility Rules
 
@@ -275,6 +290,22 @@ Why invariants hold:
 - set union is associative, commutative, idempotent
 - deterministic `top(Kmax, order)` on the same union is deterministic
 - therefore `merge` remains associative, commutative, idempotent
+
+## 6.3 Membership Convergence Rule
+
+Membership entries are ordered independently per `node_id`:
+
+- a higher `incarnation` wins;
+- at equal incarnation, status severity is `alive < suspect < dead`;
+- indirect lower-incarnation or lower-severity entries are stale and ignored;
+- direct `Ping`/`Ack` evidence may restore `alive` at the same incarnation;
+- a node that receives `suspect` or `dead` about itself at an equal or higher
+  incarnation advances above the reported incarnation and advertises `alive`.
+
+`LastSeen` and consecutive probe misses are local observations and MUST NOT be
+disseminated. Membership batches MUST contain no more than 64 entries and MUST
+include the sender entry. Implementations SHOULD rotate remaining entries so
+tables larger than one batch still converge eventually.
 
 ## 7) Aggregation Interface Contract (Normative)
 
@@ -399,7 +430,9 @@ Conflict resolution is defined only by merge rules in section 6.
 
 Fields:
 
-- `version` (envelope): protocol compatibility version, initial `v1`
+- `version` (envelope): protocol compatibility version; aggregate messages use
+  `v1`, while membership `Ping`/`Ack` with required endpoint dissemination use
+  `v2`
 - `seq` (envelope): sender-local monotonic message sequence
 
 Rules:
@@ -412,9 +445,9 @@ Implementation note:
 
 - `internal/gossip/transport.MessageGuard` implements duplicate and stale
   sequence rejection for `(from, seq)`
-- runtime use of strict sequence rejection across node restarts MUST account for
-  `incarnation` or persist the sequence counter; otherwise a valid restarted
-  node that emits `seq=1` again could be rejected as stale
+- membership does not apply that guard to `Ping`/`Ack` yet because the guard's
+  high-water key does not include the membership incarnation; a future guard
+  MUST key by `(from, incarnation)` or use a persisted sequence counter
 
 ## 8.2 Aggregate State Version Rule (Lamport)
 

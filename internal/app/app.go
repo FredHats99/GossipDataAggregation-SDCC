@@ -93,6 +93,7 @@ func New(cfg config.Config) (*App, error) {
 		NodeID:              cfg.NodeID,
 		SelfEndpoint:        cfg.BindAddr,
 		Peers:               cfg.SeedNodeList(),
+		PeerProvider:        bootstrapper.AlivePeerEndpoints,
 		Fanout:              cfg.Fanout,
 		SendTimeout:         2 * time.Second,
 		AntiEntropyInterval: cfg.AntiEntropyIntervalDuration(),

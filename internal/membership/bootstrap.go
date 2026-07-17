@@ -15,11 +15,13 @@ import (
 )
 
 const (
-	joinAttempts      = 4
-	suspectAfterMiss  = 3
-	deadAfterMiss     = 6
-	suspectAfterTicks = 3
-	deadAfterTicks    = 6
+	joinAttempts              = 4
+	suspectAfterMiss          = 3
+	deadAfterMiss             = 6
+	suspectAfterTicks         = 3
+	deadAfterTicks            = 6
+	maxDisseminatedMembership = 64
+	membershipProtocolVersion = "v2"
 )
 
 type Bootstrapper struct {
@@ -38,14 +40,19 @@ type Bootstrapper struct {
 type EnvelopeHandler func(context.Context, transport.Envelope)
 
 type pingPayload struct {
-	NodeID      string `json:"node_id"`
-	Incarnation uint64 `json:"incarnation"`
+	NodeID      string  `json:"node_id"`
+	Endpoint    string  `json:"endpoint"`
+	Incarnation uint64  `json:"incarnation"`
+	Membership  []Entry `json:"membership,omitempty"`
 }
 
 type ackPayload struct {
-	AckedSeq uint64 `json:"acked_seq"`
-	Status   string `json:"status"`
-	Reason   string `json:"reason,omitempty"`
+	AckedSeq    uint64  `json:"acked_seq"`
+	Status      string  `json:"status"`
+	Reason      string  `json:"reason,omitempty"`
+	Endpoint    string  `json:"endpoint"`
+	Incarnation uint64  `json:"incarnation"`
+	Membership  []Entry `json:"membership,omitempty"`
 }
 
 func NewBootstrapper(
@@ -56,6 +63,7 @@ func NewBootstrapper(
 	fanout int,
 	logger *slog.Logger,
 ) *Bootstrapper {
+	selfEndpoint := advertisedEndpoint(nodeID, bindAddr, seeds)
 	return &Bootstrapper{
 		nodeID:         nodeID,
 		bindAddr:       bindAddr,
@@ -63,7 +71,7 @@ func NewBootstrapper(
 		fanout:         fanout,
 		gossipInterval: gossipInterval,
 		logger:         logger,
-		table:          NewTable(nodeID, bindAddr),
+		table:          NewTable(nodeID, selfEndpoint),
 		codec:          transport.NewJSONCodec(),
 	}
 }
@@ -103,21 +111,26 @@ func (b *Bootstrapper) StartJoinListener(ctx context.Context) error {
 				b.dispatchEnvelope(ctx, message, remotePeer)
 				continue
 			}
-			peerNodeID, err := decodePingNodeID(message)
+			if message.From == b.nodeID {
+				b.logger.Warn("membership ping rejected: duplicate node_id", "peer", remotePeer, "node_id", message.From)
+				continue
+			}
+			ping, err := decodePing(message)
 			if err != nil {
 				b.logger.Warn("membership ping payload rejected", "peer", remotePeer, "error", err.Error())
 				continue
 			}
 
-			b.table.MarkAlive(peerNodeID, "")
-			ack, err := b.newEnvelope("Ack", ackPayload{AckedSeq: message.Seq, Status: "accepted"})
+			b.table.Merge(ping.Membership)
+			b.table.ObserveAlive(message.From, ping.Endpoint, ping.Incarnation)
+			ack, err := b.newEnvelope("Ack", b.newAckPayload(message.Seq))
 			if err != nil {
-				b.logger.Warn("membership ACK encode failed", "peer", remotePeer, "peer_node_id", peerNodeID, "error", err.Error())
+				b.logger.Warn("membership ACK encode failed", "peer", remotePeer, "peer_node_id", message.From, "error", err.Error())
 				continue
 			}
 			ackFrame, err := b.codec.Encode(ack)
 			if err != nil {
-				b.logger.Warn("membership ACK encode failed", "peer", remotePeer, "peer_node_id", peerNodeID, "error", err.Error())
+				b.logger.Warn("membership ACK encode failed", "peer", remotePeer, "peer_node_id", message.From, "error", err.Error())
 				continue
 			}
 			sendCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -127,12 +140,12 @@ func (b *Bootstrapper) StartJoinListener(ctx context.Context) error {
 				b.logger.Warn(
 					"membership join ACK send failed",
 					"peer", remotePeer,
-					"peer_node_id", peerNodeID,
+					"peer_node_id", message.From,
 					"error", err.Error(),
 				)
 				continue
 			}
-			b.logger.Debug("membership join ACK sent", "peer", remotePeer, "peer_node_id", peerNodeID)
+			b.logger.Debug("membership join ACK sent", "peer", remotePeer, "peer_node_id", message.From)
 		}
 	}()
 
@@ -158,12 +171,11 @@ func (b *Bootstrapper) JoinSeeds(ctx context.Context) {
 			continue
 		}
 
-		peerNodeID, err := b.joinSeedWithRetry(ctx, seed)
+		_, err := b.joinSeedWithRetry(ctx, seed)
 		if err != nil {
 			b.logger.Warn("membership join failed after retries", "seed", seed, "error", err.Error())
 			continue
 		}
-		b.table.MarkAlive(peerNodeID, seed)
 		b.logger.Info("membership join succeeded", "seed", seed)
 	}
 }
@@ -209,6 +221,25 @@ func normalizeLocalHost(host string) string {
 	}
 }
 
+func advertisedEndpoint(nodeID, bindAddr string, seeds []string) string {
+	for _, seed := range seeds {
+		host, _, err := net.SplitHostPort(strings.TrimSpace(seed))
+		if err == nil && strings.TrimSpace(host) == nodeID {
+			return strings.TrimSpace(seed)
+		}
+	}
+	host, port, err := net.SplitHostPort(strings.TrimSpace(bindAddr))
+	if err != nil {
+		return strings.TrimSpace(bindAddr)
+	}
+	switch strings.TrimSpace(host) {
+	case "", "0.0.0.0", "::", "[::]":
+		return net.JoinHostPort(nodeID, port)
+	default:
+		return strings.TrimSpace(bindAddr)
+	}
+}
+
 func (b *Bootstrapper) StartGossipLoop(ctx context.Context) {
 	ticker := time.NewTicker(b.gossipInterval)
 	defer ticker.Stop()
@@ -225,10 +256,6 @@ func (b *Bootstrapper) StartGossipLoop(ctx context.Context) {
 
 func (b *Bootstrapper) gossipOnce(ctx context.Context) {
 	peers := b.samplePeers()
-	if len(peers) == 0 {
-		return
-	}
-
 	for _, peer := range peers {
 		select {
 		case <-ctx.Done():
@@ -236,13 +263,12 @@ func (b *Bootstrapper) gossipOnce(ctx context.Context) {
 		default:
 		}
 
-		peerNodeID, err := b.joinSeed(peer)
+		_, err := b.joinSeed(peer)
 		if err != nil {
 			b.logger.Debug("membership gossip ping failed", "peer", peer, "error", err.Error())
 			b.table.MarkMissedByEndpoint(peer, suspectAfterMiss, deadAfterMiss)
 			continue
 		}
-		b.table.MarkAlive(peerNodeID, peer)
 	}
 	now := time.Now().UTC()
 	b.table.ApplyTimeouts(
@@ -256,11 +282,27 @@ func (b *Bootstrapper) gossipOnce(ctx context.Context) {
 
 func (b *Bootstrapper) samplePeers() []string {
 	candidates := make([]string, 0, len(b.seeds))
+	seen := make(map[string]struct{})
 	for _, seed := range b.seeds {
 		if b.isSelfSeed(seed) {
 			continue
 		}
+		seed = strings.TrimSpace(seed)
+		if seed == "" {
+			continue
+		}
+		seen[seed] = struct{}{}
 		candidates = append(candidates, seed)
+	}
+	for _, endpoint := range b.table.AlivePeerEndpoints() {
+		if b.isSelfSeed(endpoint) {
+			continue
+		}
+		if _, exists := seen[endpoint]; exists {
+			continue
+		}
+		seen[endpoint] = struct{}{}
+		candidates = append(candidates, endpoint)
 	}
 
 	if len(candidates) <= b.fanout {
@@ -318,7 +360,7 @@ func (b *Bootstrapper) joinSeed(seed string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	ping, err := b.newEnvelope("Ping", pingPayload{NodeID: b.nodeID, Incarnation: 1})
+	ping, err := b.newEnvelope("Ping", b.newPingPayload())
 	if err != nil {
 		return "", fmt.Errorf("build ping: %w", err)
 	}
@@ -342,15 +384,26 @@ func (b *Bootstrapper) joinSeed(seed string) (string, error) {
 		if ack.Type != "Ack" {
 			continue
 		}
-		if err := validateAcceptedAck(ack, ping.Seq); err != nil {
+		if ack.From == b.nodeID {
+			return "", fmt.Errorf("duplicate node_id %q in membership ACK", ack.From)
+		}
+		payload, err := decodeAcceptedAck(ack, ping.Seq)
+		if err != nil {
 			return "", err
 		}
+		b.table.Merge(payload.Membership)
+		b.table.ObserveAlive(ack.From, payload.Endpoint, payload.Incarnation)
+		b.table.AssociateTarget(ack.From, seed)
 		return ack.From, nil
 	}
 }
 
 func (b *Bootstrapper) MembersSnapshot() []Member {
 	return b.table.Snapshot()
+}
+
+func (b *Bootstrapper) AlivePeerEndpoints() map[string]string {
+	return b.table.AlivePeerEndpoints()
 }
 
 func (b *Bootstrapper) dispatchEnvelope(ctx context.Context, message transport.Envelope, remotePeer string) {
@@ -371,41 +424,99 @@ func (b *Bootstrapper) newEnvelope(messageType string, payload any) (transport.E
 		Seq:       b.seq.Add(1),
 		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 		From:      b.nodeID,
-		Version:   "v1",
+		Version:   membershipProtocolVersion,
 		Payload:   payloadBytes,
 	}, nil
 }
 
-func decodePingNodeID(message transport.Envelope) (string, error) {
-	var payload pingPayload
-	if err := json.Unmarshal(message.Payload, &payload); err != nil {
-		return "", fmt.Errorf("decode ping payload: %w", err)
+func (b *Bootstrapper) newPingPayload() pingPayload {
+	self := b.table.SelfEntry()
+	return pingPayload{
+		NodeID:      self.NodeID,
+		Endpoint:    self.Endpoint,
+		Incarnation: self.Incarnation,
+		Membership:  b.disseminatedMembership(),
 	}
-	if strings.TrimSpace(payload.NodeID) == "" {
-		return "", fmt.Errorf("empty ping node_id")
-	}
-	if payload.NodeID != message.From {
-		return "", fmt.Errorf("ping node_id %q does not match envelope from %q", payload.NodeID, message.From)
-	}
-	return payload.NodeID, nil
 }
 
-func validateAcceptedAck(message transport.Envelope, expectedSeq uint64) error {
+func (b *Bootstrapper) newAckPayload(ackedSeq uint64) ackPayload {
+	self := b.table.SelfEntry()
+	return ackPayload{
+		AckedSeq:    ackedSeq,
+		Status:      "accepted",
+		Endpoint:    self.Endpoint,
+		Incarnation: self.Incarnation,
+		Membership:  b.disseminatedMembership(),
+	}
+}
+
+func (b *Bootstrapper) disseminatedMembership() []Entry {
+	entries := b.table.Entries()
+	if len(entries) <= maxDisseminatedMembership {
+		return entries
+	}
+	self := b.table.SelfEntry()
+	others := make([]Entry, 0, len(entries)-1)
+	for _, entry := range entries {
+		if entry.NodeID != self.NodeID {
+			others = append(others, entry)
+		}
+	}
+	rand.Shuffle(len(others), func(i, j int) { others[i], others[j] = others[j], others[i] })
+	out := make([]Entry, 0, maxDisseminatedMembership)
+	out = append(out, self)
+	out = append(out, others[:maxDisseminatedMembership-1]...)
+	return out
+}
+
+func decodePing(message transport.Envelope) (pingPayload, error) {
+	if message.Version != membershipProtocolVersion {
+		return pingPayload{}, fmt.Errorf("unsupported membership protocol version %q", message.Version)
+	}
+	var payload pingPayload
+	if err := json.Unmarshal(message.Payload, &payload); err != nil {
+		return pingPayload{}, fmt.Errorf("decode ping payload: %w", err)
+	}
+	if strings.TrimSpace(payload.NodeID) == "" {
+		return pingPayload{}, fmt.Errorf("empty ping node_id")
+	}
+	if payload.NodeID != message.From {
+		return pingPayload{}, fmt.Errorf("ping node_id %q does not match envelope from %q", payload.NodeID, message.From)
+	}
+	if !validMembershipEndpoint(strings.TrimSpace(payload.Endpoint)) {
+		return pingPayload{}, fmt.Errorf("invalid ping endpoint %q", payload.Endpoint)
+	}
+	if payload.Incarnation == 0 {
+		return pingPayload{}, fmt.Errorf("zero ping incarnation")
+	}
+	return payload, nil
+}
+
+func decodeAcceptedAck(message transport.Envelope, expectedSeq uint64) (ackPayload, error) {
+	if message.Version != membershipProtocolVersion {
+		return ackPayload{}, fmt.Errorf("unsupported membership protocol version %q", message.Version)
+	}
 	var payload ackPayload
 	if err := json.Unmarshal(message.Payload, &payload); err != nil {
-		return fmt.Errorf("decode ack payload: %w", err)
+		return ackPayload{}, fmt.Errorf("decode ack payload: %w", err)
 	}
 	if payload.AckedSeq != expectedSeq {
-		return fmt.Errorf("unexpected ACK sequence %d for ping sequence %d", payload.AckedSeq, expectedSeq)
+		return ackPayload{}, fmt.Errorf("unexpected ACK sequence %d for ping sequence %d", payload.AckedSeq, expectedSeq)
 	}
 	if payload.Status != "accepted" {
 		if payload.Reason != "" {
-			return fmt.Errorf("ACK rejected: %s", payload.Reason)
+			return ackPayload{}, fmt.Errorf("ACK rejected: %s", payload.Reason)
 		}
-		return fmt.Errorf("ACK rejected")
+		return ackPayload{}, fmt.Errorf("ACK rejected")
 	}
 	if strings.TrimSpace(message.From) == "" {
-		return fmt.Errorf("empty peer node_id in ACK")
+		return ackPayload{}, fmt.Errorf("empty peer node_id in ACK")
 	}
-	return nil
+	if !validMembershipEndpoint(strings.TrimSpace(payload.Endpoint)) {
+		return ackPayload{}, fmt.Errorf("invalid peer endpoint %q in ACK", payload.Endpoint)
+	}
+	if payload.Incarnation == 0 {
+		return ackPayload{}, fmt.Errorf("zero peer incarnation in ACK")
+	}
+	return payload, nil
 }

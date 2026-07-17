@@ -15,6 +15,7 @@ Aggregation design choices are tracked in `AGGREGATION_DESIGN.md`.
 Gossip aggregation pipeline choices are tracked in `GOSSIP_AGGREGATION_PIPELINE.md`.
 Anti-entropy and snapshot sync choices are tracked in `STEP7_ANTI_ENTROPY_STATE_SYNC.md`.
 Persistence and crash recovery choices are tracked in `STEP8_PERSISTENCE_CRASH_RECOVERY.md`.
+Transitive membership dissemination is documented in `STEP3_MEMBERSHIP_DISSEMINATION.md`.
 
 ### Local run
 
@@ -51,7 +52,7 @@ make run
 
 - `GET /healthz` returns process liveness
 - `GET /readyz` returns readiness (automatically set to not-ready during shutdown)
-- `GET /members` returns current membership snapshot (`node_id`, `endpoint`, `status`, `last_seen`)
+- `GET /members` returns current membership snapshot (`node_id`, `endpoint`, `status`, `incarnation`, `last_seen`)
 - `POST /update` applies a local `SUM` or `TOPK` update and emits a gossip delta
 - `GET /aggregate/sum` returns the local SUM estimate
 - `GET /aggregate/topk?k=...` returns the local TOP-K estimate
@@ -74,12 +75,26 @@ Invoke-RestMethod -Uri 'http://localhost:8080/aggregate/topk?k=3'
 
 Membership bootstrap and liveness probing use the gossip protocol envelope over UDP:
 
-- `Ping` payload: `node_id`, `incarnation`
-- `Ack` payload: `acked_seq`, `status`, optional `reason`
+- membership handshakes use envelope protocol version `v2`
+- `Ping` payload: `node_id`, `endpoint`, `incarnation`, optional bounded `membership` batch
+- `Ack` payload: `acked_seq`, `status`, optional `reason`, `endpoint`,
+  `incarnation`, optional bounded `membership` batch
 - frames are encoded through `internal/gossip/transport.JSONCodec`
 - UDP I/O is provided by `internal/gossip/transport.UDPFrameTransport`
+- indirectly learned live endpoints join the membership probe pool
+- the aggregate gossip runtime also uses live transitively discovered peers
 
 The old text protocol (`PING <node_id>` / `ACK <node_id>`) is no longer used.
+See `STEP3_MEMBERSHIP_DISSEMINATION.md` for merge, restart, endpoint, and
+bounded-dissemination semantics.
+
+Run the isolated partial-seed Docker verification after building the local
+image:
+
+```powershell
+docker compose build
+powershell -ExecutionPolicy Bypass -File scripts\test-membership-dissemination.ps1
+```
 
 ### Transport reliability
 
@@ -89,9 +104,10 @@ The old text protocol (`PING <node_id>` / `ACK <node_id>`) is no longer used.
 - `MessageGuard` for duplicate suppression and per-sender sequence monotonicity
 - `GuardedReceiver` for skipping duplicate or stale envelopes
 
-These components are implemented and tested. `MessageGuard` is not yet wired
-into membership runtime because restart handling needs `incarnation` or
-persistent sequence semantics.
+These components are implemented and tested. Membership uses incarnation-aware
+state merge, but `MessageGuard` is still not applied to `Ping`/`Ack`: its
+sender sequence high-water mark is not scoped by incarnation and would reject
+the reset sequence of a legitimate restarted process.
 
 ### Gossip aggregation runtime
 
